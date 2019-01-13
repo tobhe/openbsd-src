@@ -627,7 +627,34 @@ sdmmc_mmc_command(struct sdmmc_softc *sc, struct sdmmc_command *cmd)
 
 	rw_assert_wrlock(&sc->sc_lock);
 
+	if (cmd->c_data != NULL && ISSET(sc->sc_caps, SMC_CAPS_DMA)) {
+		error = bus_dmamap_load(sc->sc_dmat, sc->sc_dmap,
+		    cmd->c_data, cmd->c_datalen, NULL, BUS_DMA_NOWAIT |
+		    (ISSET(cmd->c_flags, SCF_CMD_READ) ?
+		     BUS_DMA_READ : BUS_DMA_WRITE));
+		if (error)
+			return (error);
+
+		bus_dmamap_sync(sc->sc_dmat, sc->sc_dmap,
+		    0, sc->sc_dmap->dm_mapsize,
+		    (ISSET(cmd->c_flags, SCF_CMD_READ) ?
+		     BUS_DMASYNC_PREREAD : BUS_DMASYNC_PREWRITE));
+
+		cmd->c_dmamap = sc->sc_dmap;
+	}
+
 	sdmmc_chip_exec_command(sc->sct, sc->sch, cmd);
+
+	if (cmd->c_dmamap != NULL) {
+		bus_dmamap_sync(sc->sc_dmat, sc->sc_dmap,
+		    0, sc->sc_dmap->dm_mapsize,
+		    (ISSET(cmd->c_flags, SCF_CMD_READ) ?
+		     BUS_DMASYNC_POSTREAD : BUS_DMASYNC_POSTWRITE));
+
+		bus_dmamap_unload(sc->sc_dmat, sc->sc_dmap);
+
+		cmd->c_dmamap = NULL;
+	}
 
 #ifdef SDMMC_DEBUG
 	sdmmc_dump_command(sc, cmd);

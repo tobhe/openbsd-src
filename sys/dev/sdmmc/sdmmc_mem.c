@@ -23,6 +23,8 @@
 #include <sys/kernel.h>
 #include <sys/malloc.h>
 #include <sys/systm.h>
+#include <sys/types.h>
+#include <sys/pool.h>
 
 #include <dev/sdmmc/sdmmcchip.h>
 #include <dev/sdmmc/sdmmcreg.h>
@@ -57,11 +59,11 @@ int	sdmmc_mem_sd_init(struct sdmmc_softc *, struct sdmmc_function *);
 int	sdmmc_mem_mmc_init(struct sdmmc_softc *, struct sdmmc_function *);
 int	sdmmc_mem_single_read_block(struct sdmmc_function *, int, u_char *,
 	size_t);
-int	sdmmc_mem_read_block_subr(struct sdmmc_function *, bus_dmamap_t,
+int	sdmmc_mem_read_block_subr(struct sdmmc_function *,
 	int, u_char *, size_t);
 int	sdmmc_mem_single_write_block(struct sdmmc_function *, int, u_char *,
 	size_t);
-int	sdmmc_mem_write_block_subr(struct sdmmc_function *, bus_dmamap_t,
+int	sdmmc_mem_write_block_subr(struct sdmmc_function *,
 	int, u_char *, size_t);
 
 #ifdef SDMMC_DEBUG
@@ -359,9 +361,9 @@ sdmmc_mem_send_scr(struct sdmmc_softc *sc, uint32_t *scr)
 	int datalen = 8;
 	int error = 0;
 
-	ptr = malloc(datalen, M_DEVBUF, M_NOWAIT | M_ZERO);
+	ptr = dma_alloc(datalen, PR_NOWAIT | PR_ZERO);
 	if (ptr == NULL)
-		goto out;
+		return (ENOMEM);
 
 	memset(&cmd, 0, sizeof(cmd));
 	cmd.c_data = ptr;
@@ -375,9 +377,7 @@ sdmmc_mem_send_scr(struct sdmmc_softc *sc, uint32_t *scr)
 	if (error == 0)
 		memcpy(scr, ptr, datalen);
 
-out:
-	if (ptr != NULL)
-		free(ptr, M_DEVBUF, datalen);
+	dma_free(ptr, datalen);
 
 	return error;
 }
@@ -422,11 +422,9 @@ sdmmc_mem_send_cxd_data(struct sdmmc_softc *sc, int opcode, void *data,
 	void *ptr = NULL;
 	int error = 0;
 
-	ptr = malloc(datalen, M_DEVBUF, M_NOWAIT | M_ZERO);
-	if (ptr == NULL) {
-		error = ENOMEM;
-		goto out;
-	}
+	ptr = dma_alloc(datalen, PR_NOWAIT | PR_ZERO);
+	if (ptr == NULL)
+		return (ENOMEM);
 
 	memset(&cmd, 0, sizeof(cmd));
 	cmd.c_data = ptr;
@@ -444,9 +442,7 @@ sdmmc_mem_send_cxd_data(struct sdmmc_softc *sc, int opcode, void *data,
 	if (error == 0)
 		memcpy(data, ptr, datalen);
 
-out:
-	if (ptr != NULL)
-		free(ptr, M_DEVBUF, datalen);
+	dma_free(ptr, datalen);
 
 	return error;
 }
@@ -501,9 +497,9 @@ sdmmc_mem_sd_switch(struct sdmmc_function *sf, int mode, int group,
 
 	gsft = (group - 1) << 2;
 
-	ptr = malloc(statlen, M_DEVBUF, M_NOWAIT | M_ZERO);
+	ptr = dma_alloc(statlen, PR_NOWAIT | PR_ZERO);
 	if (ptr == NULL)
-		goto out;
+		return (ENOMEM);
 
 	memset(&cmd, 0, sizeof(cmd));
 	cmd.c_data = ptr;
@@ -515,15 +511,12 @@ sdmmc_mem_sd_switch(struct sdmmc_function *sf, int mode, int group,
 	cmd.c_flags = SCF_CMD_ADTC | SCF_CMD_READ | SCF_RSP_R1;
 
 	error = sdmmc_mmc_command(sc, &cmd);
-	if (error == 0)
+	if (error == 0) {
 		memcpy(status, ptr, statlen);
-
-out:
-	if (ptr != NULL)
-		free(ptr, M_DEVBUF, statlen);
-
-	if (error == 0)
 		sdmmc_be512_to_bitfield512(status);
+	}
+
+	dma_free(ptr, statlen);
 
 	return error;
 }
@@ -886,7 +879,7 @@ sdmmc_mem_set_blocklen(struct sdmmc_softc *sc, struct sdmmc_function *sf)
 }
 
 int
-sdmmc_mem_read_block_subr(struct sdmmc_function *sf, bus_dmamap_t dmap,
+sdmmc_mem_read_block_subr(struct sdmmc_function *sf,
     int blkno, u_char *data, size_t datalen)
 {
 	struct sdmmc_softc *sc = sf->sc;
@@ -908,7 +901,6 @@ sdmmc_mem_read_block_subr(struct sdmmc_function *sf, bus_dmamap_t dmap,
 	else
 		cmd.c_arg = blkno << 9;
 	cmd.c_flags = SCF_CMD_ADTC | SCF_CMD_READ | SCF_RSP_R1;
-	cmd.c_dmamap = dmap;
 
 	error = sdmmc_mmc_command(sc, &cmd);
 	if (error != 0)
@@ -948,7 +940,7 @@ sdmmc_mem_single_read_block(struct sdmmc_function *sf, int blkno, u_char *data,
 	int i;
 
 	for (i = 0; i < datalen / sf->csd.sector_size; i++) {
-		error = sdmmc_mem_read_block_subr(sf, NULL,  blkno + i,
+		error = sdmmc_mem_read_block_subr(sf, blkno + i,
 		    data + i * sf->csd.sector_size, sf->csd.sector_size);
 		if (error)
 			break;
@@ -971,30 +963,7 @@ sdmmc_mem_read_block(struct sdmmc_function *sf, int blkno, u_char *data,
 		goto out;
 	}
 
-	if (!ISSET(sc->sc_caps, SMC_CAPS_DMA)) {
-		error = sdmmc_mem_read_block_subr(sf, NULL, blkno,
-		    data, datalen);
-		goto out;
-	}
-
-	/* DMA transfer */
-	error = bus_dmamap_load(sc->sc_dmat, sc->sc_dmap, data, datalen,
-	    NULL, BUS_DMA_NOWAIT|BUS_DMA_READ);
-	if (error)
-		goto out;
-
-	bus_dmamap_sync(sc->sc_dmat, sc->sc_dmap, 0, datalen,
-	    BUS_DMASYNC_PREREAD);
-
-	error = sdmmc_mem_read_block_subr(sf, sc->sc_dmap, blkno, data,
-	    datalen);
-	if (error)
-		goto unload;
-
-	bus_dmamap_sync(sc->sc_dmat, sc->sc_dmap, 0, datalen,
-	    BUS_DMASYNC_POSTREAD);
-unload:
-	bus_dmamap_unload(sc->sc_dmat, sc->sc_dmap);
+	error = sdmmc_mem_read_block_subr(sf, blkno, data, datalen);
 
 out:
 	rw_exit(&sc->sc_lock);
@@ -1002,7 +971,7 @@ out:
 }
 
 int
-sdmmc_mem_write_block_subr(struct sdmmc_function *sf, bus_dmamap_t dmap,
+sdmmc_mem_write_block_subr(struct sdmmc_function *sf,
     int blkno, u_char *data, size_t datalen)
 {
 	struct sdmmc_softc *sc = sf->sc;
@@ -1023,7 +992,6 @@ sdmmc_mem_write_block_subr(struct sdmmc_function *sf, bus_dmamap_t dmap,
 	else
 		cmd.c_arg = blkno << 9;
 	cmd.c_flags = SCF_CMD_ADTC | SCF_RSP_R1;
-	cmd.c_dmamap = dmap;
 
 	error = sdmmc_mmc_command(sc, &cmd);
 	if (error != 0)
@@ -1062,7 +1030,7 @@ sdmmc_mem_single_write_block(struct sdmmc_function *sf, int blkno, u_char *data,
 	int i;
 
 	for (i = 0; i < datalen / sf->csd.sector_size; i++) {
-		error = sdmmc_mem_write_block_subr(sf, NULL, blkno + i,
+		error = sdmmc_mem_write_block_subr(sf, blkno + i,
 		    data + i * sf->csd.sector_size, sf->csd.sector_size);
 		if (error)
 			break;
@@ -1085,30 +1053,8 @@ sdmmc_mem_write_block(struct sdmmc_function *sf, int blkno, u_char *data,
 		goto out;
 	}
 
-	if (!ISSET(sc->sc_caps, SMC_CAPS_DMA)) {
-		error = sdmmc_mem_write_block_subr(sf, NULL, blkno,
-		    data, datalen);
-		goto out;
-	}
-
-	/* DMA transfer */
-	error = bus_dmamap_load(sc->sc_dmat, sc->sc_dmap, data, datalen,
-	    NULL, BUS_DMA_NOWAIT|BUS_DMA_WRITE);
-	if (error)
-		goto out;
-
-	bus_dmamap_sync(sc->sc_dmat, sc->sc_dmap, 0, datalen,
-	    BUS_DMASYNC_PREWRITE);
-
-	error = sdmmc_mem_write_block_subr(sf, sc->sc_dmap, blkno, data,
+	error = sdmmc_mem_write_block_subr(sf, blkno, data,
 	    datalen);
-	if (error)
-		goto unload;
-
-	bus_dmamap_sync(sc->sc_dmat, sc->sc_dmap, 0, datalen,
-	    BUS_DMASYNC_POSTWRITE);
-unload:
-	bus_dmamap_unload(sc->sc_dmat, sc->sc_dmap);
 
 out:
 	rw_exit(&sc->sc_lock);

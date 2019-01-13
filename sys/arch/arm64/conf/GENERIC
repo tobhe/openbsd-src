@@ -139,7 +139,7 @@ wsdisplay*	at ssdfb?
 imxtmu*		at fdt?
 
 # Raspberry Pi 3/4
-bcmaux*		at fdt?
+bcmaux*		at fdt? early 1
 bcmintc*	at fdt?
 bcmdog*		at fdt?
 bcmrng*		at fdt?
@@ -147,6 +147,11 @@ bcmtemp*	at fdt?
 bse*		at acpi?
 dwctwo*		at fdt?
 usb*		at dwctwo?
+bsdhost*	at fdt?
+sdmmc*		at bsdhost?
+cprman*		at fdt? early 1
+bmbox*		at fdt? early 1
+bdmac*		at fdt? early 1
 
 # Amlogic SoCs
 amlclock*	at fdt? early 1
