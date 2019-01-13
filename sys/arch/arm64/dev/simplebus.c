@@ -154,13 +154,28 @@ simplebus_print(void *aux, const char *pnp)
 {
 	struct fdt_attach_args *fa = aux;
 	char name[32];
+	char compatible[256];
+	char* data = compatible;
+	int length;
 
 	if (!pnp)
 		return (QUIET);
 
 	if (OF_getprop(fa->fa_node, "name", name, sizeof(name)) > 0) {
 		name[sizeof(name) - 1] = 0;
-		printf("\"%s\"", name);
+		printf("\"%s", name);
+
+		// print strings that can be used to match against this device in new drivers
+		length = OF_getprop(fa->fa_node, "compatible", compatible, sizeof(compatible));
+		if (length > 0) {
+			compatible[sizeof(compatible) - 1] = 0;
+			while (length > 0) {
+				printf("<%s>", data);
+				length -= strlen(data) + 1;
+				data += strlen(data) + 1;
+			}
+		}
+		printf("\"");
 	} else
 		printf("node %u", fa->fa_node);
 
