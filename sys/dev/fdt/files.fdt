@@ -298,6 +298,6 @@ attach	ssdfb at spi with ssdfb_spi
 attach	ssdfb at i2c with ssdfb_i2c
 file	dev/fdt/ssdfb.c			ssdfb
 
-device mmc
-attach mmc at fdt
-file	dev/fdt/mmc.c			mmc
+device bcm2835_mmc
+attach bcm2835_mmc at fdt
+file	dev/fdt/bcm2835_mmc.c		bcm2835_mmc

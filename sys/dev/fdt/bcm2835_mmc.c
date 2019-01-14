@@ -28,32 +28,32 @@
 #include <dev/ofw/openfirm.h>
 #include <dev/ofw/fdt.h>
 
-struct mmc_softc {
+struct bcm2835_mmc_softc {
 	struct device		sc_dev;
 	bus_space_tag_t		sc_iot;
 	bus_space_handle_t	sc_ioh;
 	bus_size_t		sc_size;
 };
 
-int mmc_match(struct device *, void *, void *);
-void mmc_attach(struct device *, struct device *, void *);
-int mmc_detach(struct device *, int);
-int mmc_activate(struct device *, int);
+int bcm2835_mmc_match(struct device *, void *, void *);
+void bcm2835_mmc_attach(struct device *, struct device *, void *);
+int bcm2835_mmc_detach(struct device *, int);
+int bcm2835_mmc_activate(struct device *, int);
 
-struct cfattach mmc_ca = {
-	sizeof(struct mmc_softc),
-	mmc_match,
-	mmc_attach,
-	mmc_detach,
-	mmc_activate,
+struct cfattach bcm2835_mmc_ca = {
+	sizeof(struct bcm2835_mmc_softc),
+	bcm2835_mmc_match,
+	bcm2835_mmc_attach,
+	bcm2835_mmc_detach,
+	bcm2835_mmc_activate,
 };
 
-struct cfdriver mmc_cd = {
+struct cfdriver bcm2835_mmc_cd = {
 	NULL, "mmc", DV_DISK
 };
 
 int
-mmc_match(struct device *parent, void *match, void *aux)
+bcm2835_mmc_match(struct device *parent, void *match, void *aux)
 {
 	struct fdt_attach_args *faa = aux;
 
@@ -62,9 +62,9 @@ mmc_match(struct device *parent, void *match, void *aux)
 }
 
 void
-mmc_attach(struct device *parent, struct device *self, void *aux)
+bcm2835_mmc_attach(struct device *parent, struct device *self, void *aux)
 {
-	struct mmc_softc *sc = (struct mmc_softc *)self;
+	struct bcm2835_mmc_softc *sc = (struct bcm2835_mmc_softc *)self;
 	struct fdt_attach_args *faa = aux;
 
 	if (faa->fa_nreg < 1) {
@@ -84,16 +84,16 @@ mmc_attach(struct device *parent, struct device *self, void *aux)
 }
 
 int 
-mmc_detach(struct device *self, int flags)
+bcm2835_mmc_detach(struct device *self, int flags)
 {
-	struct mmc_softc *sc = (struct mmc_softc *)self;
+	struct bcm2835_mmc_softc *sc = (struct bcm2835_mmc_softc *)self;
 
 	bus_space_unmap(sc->sc_iot, sc->sc_ioh, sc->sc_size);
 	return 0;
 }
 
 int
-mmc_activate(struct device *self, int flags)
+bcm2835_mmc_activate(struct device *self, int flags)
 {
 	printf("Sup\n");
 	return 0;
