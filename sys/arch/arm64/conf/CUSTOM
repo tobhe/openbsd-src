@@ -7,3 +7,4 @@ option	MULTIPROCESSOR
 #option	WITNESS
 
 cpu*		at mainbus?
+mmc*		at fdt?

@@ -297,3 +297,7 @@ device	ssdfb: wsemuldisplaydev, rasops1
 attach	ssdfb at spi with ssdfb_spi
 attach	ssdfb at i2c with ssdfb_i2c
 file	dev/fdt/ssdfb.c			ssdfb
+
+device mmc
+attach mmc at fdt
+file	dev/fdt/mmc.c			mmc
