@@ -29,7 +29,10 @@
 #include <dev/ofw/fdt.h>
 
 struct mmc_softc {
-	struct device sc_dev;
+	struct device		sc_dev;
+	bus_space_tag_t		sc_iot;
+	bus_space_handle_t	sc_ioh;
+	bus_size_t		sc_size;
 };
 
 int mmc_match(struct device *, void *, void *);
@@ -55,19 +58,37 @@ mmc_match(struct device *parent, void *match, void *aux)
 	struct fdt_attach_args *faa = aux;
 
 	return (OF_is_compatible(faa->fa_node, "brcm,bcm2835-mmc")
-			|| OF_is_compatible(faa->fa_node, "brcm,bcm2835-sdhci"));
+		|| OF_is_compatible(faa->fa_node, "brcm,bcm2835-sdhci"));
 }
 
 void
 mmc_attach(struct device *parent, struct device *self, void *aux)
 {
-	printf("- hello from Neil's driver\n");
+	struct mmc_softc *sc = (struct mmc_softc *)self;
+	struct fdt_attach_args *faa = aux;
+
+	if (faa->fa_nreg < 1) {
+		printf(": no registers\n");
+		return;
+	}
+
+	sc->sc_iot = faa->fa_iot;
+	sc->sc_size = faa->fa_reg[0].size;
+	if (bus_space_map(sc->sc_iot, faa->fa_reg[0].addr, sc->sc_size, 0,
+	    &sc->sc_ioh)) {
+		printf(": can't map registers\n");
+		return;
+	}
+
+	printf("\n");
 }
 
 int 
 mmc_detach(struct device *self, int flags)
 {
-	printf("Sorry I can't do that, Dave\n");
+	struct mmc_softc *sc = (struct mmc_softc *)self;
+
+	bus_space_unmap(sc->sc_iot, sc->sc_ioh, sc->sc_size);
 	return 0;
 }
 
