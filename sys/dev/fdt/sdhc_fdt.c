@@ -56,7 +56,8 @@ sdhc_fdt_match(struct device *parent, void *match, void *aux)
 {
 	struct fdt_attach_args *faa = aux;
 
-	return OF_is_compatible(faa->fa_node, "arasan,sdhci-5.1");
+	return OF_is_compatible(faa->fa_node, "arasan,sdhci-5.1")
+		|| OF_is_compatible(faa->fa_node, "brcm,bcm2835-sdhci");
 }
 
 void
@@ -114,7 +115,19 @@ sdhc_fdt_attach(struct device *parent, struct device *self, void *aux)
 	/* XXX Doesn't work on Rockchip RK3399. */
 	sc->sc.sc_flags |= SDHC_F_NODDR50;
 
-	sdhc_host_found(&sc->sc, sc->sc_iot, sc->sc_ioh, sc->sc_size, 1, 0);
+	/*
+	 * Set the base clock frequency of the bcm2835.
+	 */
+	if (OF_is_compatible(faa->fa_node, "brcm,bcm2835-sdhci"))
+		sc->sc.sc_clkbase = 50000;
+
+	u_int32_t caps = 0;
+
+	if (OF_is_compatible(faa->fa_node, "brcm,bcm2835-sdhci"))
+		caps |= SDHC_VOLTAGE_SUPP_3_3V | SDHC_HIGH_SPEED_SUPP |
+			(SDHC_MAX_BLK_LEN_1024 << SDHC_MAX_BLK_LEN_SHIFT);
+
+	sdhc_host_found(&sc->sc, sc->sc_iot, sc->sc_ioh, sc->sc_size, 1, caps);
 	return;
 
 unmap:

@@ -43,12 +43,112 @@ sdmmc_cisptr(struct sdmmc_function *sf)
 
 	rw_assert_wrlock(&sf->sc->sc_lock);
 
-	reg = SD_IO_CCCR_CISPTR + (sf->number * SD_IO_CCCR_SIZE);
+	if (sf->number == 0) {
+		reg = SD_IO_CCCR_CISPTR;
+	} else {
+		reg = SD_IO_CCCR_CISPTR + SD_IO_FBR_BASE(sf->number);
+	}
+
 	cisptr |= sdmmc_io_read_1(sf0, reg + 0) << 0;
 	cisptr |= sdmmc_io_read_1(sf0, reg + 1) << 8;
 	cisptr |= sdmmc_io_read_1(sf0, reg + 2) << 16;
 
 	return cisptr;
+}
+
+void
+sdmmc_read_cis_funcid(struct sdmmc_function *sf, struct sdmmc_cis *cis,
+		      int reg, u_int8_t tpllen)
+{
+	if (tpllen < 2) {
+		printf("%s: bad CISTPL_FUNCID length\n", DEVNAME(sf->sc));
+		return;
+	}
+
+	struct sdmmc_function *sf0 = sf->sc->sc_fn0;
+	cis->function = sdmmc_io_read_1(sf0, reg);
+}
+
+void
+sdmmc_read_cis_funce(struct sdmmc_function *sf, struct sdmmc_cis *cis,
+		     int reg, u_int8_t tpllen)
+{
+	const static int speed_exponent[8] = { 10, 100, 1000, 10000 };
+	const static int speed_mantissa[16] = { 0, 10, 12, 13, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 70, 80 };
+
+	int tran_speed;
+	struct sdmmc_function *sf0 = sf->sc->sc_fn0;
+	if (sdmmc_io_read_1(sf0, reg++) == 0) {
+		if (tpllen < 4) {
+			printf("%s: bad CISTPL_FUNCE length\n",
+			       DEVNAME(sf->sc));
+			return;
+		}
+
+		sf->csd.read_bl_len = sdmmc_io_read_1(sf0, reg++);
+		sf->csd.read_bl_len |= sdmmc_io_read_1(sf0, reg++) << 8;
+
+		tran_speed = sdmmc_io_read_1(sf0, reg++);
+		sf->csd.tran_speed = speed_exponent[tran_speed & 7] * speed_mantissa[tran_speed >> 3 & 15];
+	} else if (sf->number == 0) {
+		printf("%s: unexpected CISTPL_FUNCE found in common\n",
+		       DEVNAME(sf->sc));
+	} else {
+		int sdiox;
+
+		sdiox = SD_IO_CCCR_SDIO_REV(sdmmc_io_read_1(sf0, 0));
+		if ((sdiox == 0 && tpllen < 0x1c) ||
+		    (sdiox != 0  && tpllen < 0x2a)) {
+			printf("%s: bad CISTPL_FUNCE length\n", DEVNAME(sf->sc));
+			return;
+		}
+
+		sf->csd.read_bl_len = sdmmc_io_read_1(sf0, reg + 11);
+		sf->csd.read_bl_len |= sdmmc_io_read_1(sf0, reg + 12) << 8;
+	}
+}
+
+void
+sdmmc_read_cis_manfid(struct sdmmc_function *sf, struct sdmmc_cis *cis,
+		      int reg, u_int8_t tpllen)
+{
+	struct sdmmc_function *sf0 = sf->sc->sc_fn0;
+	if (tpllen < 4) {
+		printf("%s: bad CISTPL_MANFID length\n", DEVNAME(sf->sc));
+		return;
+	}
+	cis->manufacturer = sdmmc_io_read_1(sf0, reg++);
+	cis->manufacturer |= sdmmc_io_read_1(sf0, reg++) << 8;
+	cis->product = sdmmc_io_read_1(sf0, reg++);
+	cis->product |= sdmmc_io_read_1(sf0, reg++) << 8;
+}
+
+void
+sdmmc_read_cis_vers_1(struct sdmmc_function *sf, struct sdmmc_cis *cis,
+		      int reg, u_int8_t tpllen)
+{
+	struct sdmmc_function *sf0 = sf->sc->sc_fn0;
+	if (tpllen < 2) {
+		printf("%s: CISTPL_VERS_1 too short\n", DEVNAME(sf->sc));
+		return;
+	}
+
+	int start, i, ch, count;
+
+	cis->cis1_major = sdmmc_io_read_1(sf0, reg++);
+	cis->cis1_minor = sdmmc_io_read_1(sf0, reg++);
+
+	for (count = 0, start = 0, i = 0; (count < 4) && ((i + 4) < 256); ++i) {
+		ch = sdmmc_io_read_1(sf0, reg + i);
+		if (ch == 0xff)
+			break;
+		cis->cis1_info_buf[i] = ch;
+		if (ch == 0) {
+			cis->cis1_info[count] = cis->cis1_info_buf + start;
+			start = i + 1;
+			count++;
+		}
+	}
 }
 
 int
@@ -85,63 +185,23 @@ sdmmc_read_cis(struct sdmmc_function *sf, struct sdmmc_cis *cis)
 
 		switch (tplcode) {
 		case SD_IO_CISTPL_FUNCID:
-			if (tpllen < 2) {
-				printf("%s: bad CISTPL_FUNCID length\n",
-				    DEVNAME(sf->sc));
-				reg += tpllen;
-				break;
-			}
-			cis->function = sdmmc_io_read_1(sf0, reg);
-			reg += tpllen;
+			sdmmc_read_cis_funcid(sf, cis, reg, tpllen);
+			break;
+		case SD_IO_CISTPL_FUNCE:
+			sdmmc_read_cis_funce(sf, cis, reg, tpllen);
 			break;
 		case SD_IO_CISTPL_MANFID:
-			if (tpllen < 4) {
-				printf("%s: bad CISTPL_MANFID length\n",
-				    DEVNAME(sf->sc));
-				reg += tpllen;
-				break;
-			}
-			cis->manufacturer = sdmmc_io_read_1(sf0, reg++);
-			cis->manufacturer |= sdmmc_io_read_1(sf0, reg++) << 8;
-			cis->product = sdmmc_io_read_1(sf0, reg++);
-			cis->product |= sdmmc_io_read_1(sf0, reg++) << 8;
+			sdmmc_read_cis_manfid(sf, cis, reg, tpllen);
 			break;
 		case SD_IO_CISTPL_VERS_1:
-			if (tpllen < 2) {
-				printf("%s: CISTPL_VERS_1 too short\n",
-				    DEVNAME(sf->sc));
-				reg += tpllen;
-				break;
-			}
-			{
-				int start, i, ch, count;
-
-				cis->cis1_major = sdmmc_io_read_1(sf0, reg++);
-				cis->cis1_minor = sdmmc_io_read_1(sf0, reg++);
-
-				for (count = 0, start = 0, i = 0;
-				     (count < 4) && ((i + 4) < 256); i++) {
-					ch = sdmmc_io_read_1(sf0, reg + i);
-					if (ch == 0xff)
-						break;
-					cis->cis1_info_buf[i] = ch;
-					if (ch == 0) {
-						cis->cis1_info[count] =
-						    cis->cis1_info_buf + start;
-						start = i + 1;
-						count++;
-					}
-				}
-
-				reg += tpllen - 2;
-			}
+			sdmmc_read_cis_vers_1(sf, cis, reg, tpllen);
 			break;
 		default:
 			DPRINTF(("%s: unknown tuple code %#x, length %d\n",
 			    DEVNAME(sf->sc), tplcode, tpllen));
-			reg += tpllen;
 			break;
 		}
+		reg += tpllen;
 	}
 
 	return 0;

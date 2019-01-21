@@ -82,9 +82,12 @@
 #define  CCCR_SPEED_SDR104		(3<<1)
 #define  CCCR_SPEED_DDR50		(4<<1)
 #define  CCCR_SPEED_MASK		(0x7<<1)
+#define	SD_IO_CCCR_SDIO_REV(r)		((r) & 0xf)
 
 /* Function Basic Registers (FBR) */
-#define SD_IO_FBR_BASE(f)		((f) * 0x100)
+#define SD_IO_FBR_START			0x00100
+#define SD_IO_FBR_SIZE			0x100
+#define SD_IO_FBR_BASE(func)		((((func) - 1) * SD_IO_FBR_SIZE) + SD_IO_FBR_START)
 #define SD_IO_FBR_BLOCKLEN		0x10
 
 /* Card Information Structure (CIS) */
