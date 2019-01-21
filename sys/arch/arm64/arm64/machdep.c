@@ -978,10 +978,6 @@ initarm(struct arm64_bootparams *abp)
 		 * EfiLoaderData so it won't be added again here.
 		 */
 		for (i = 0; i < mmap_size / mmap_desc_size; i++) {
-			printf("type 0x%x pa 0x%llx va 0x%llx pages 0x%llx attr 0x%llx\n",
-			    desc->Type, desc->PhysicalStart,
-			    desc->VirtualStart, desc->NumberOfPages,
-			    desc->Attribute);
 			if (desc->Type == EfiConventionalMemory &&
 			    desc->NumberOfPages >= 16) {
 				uvm_page_physload(atop(desc->PhysicalStart),
