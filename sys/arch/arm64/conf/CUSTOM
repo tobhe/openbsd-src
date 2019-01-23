@@ -3,8 +3,12 @@
 include "arch/arm64/conf/GENERIC"
 
 option	MULTIPROCESSOR
+option	SDMMC_DEBUG
 #option	MP_LOCKDEBUG
 #option	WITNESS
 
 cpu*		at mainbus?
 bcm2835_mmc*	at fdt?
+sdmmc*		at bcm2835_mmc?
+
+bcm2835_dmac*	at fdt?

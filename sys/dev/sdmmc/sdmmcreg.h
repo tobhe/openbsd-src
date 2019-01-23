@@ -50,8 +50,9 @@
 
 /* OCR bits */
 #define MMC_OCR_MEM_READY		(1<<31)	/* memory power-up status bit */
-#define MMC_OCR_ACCESS_MODE_MASK	0x60000000 /* bits 30:29 */
-#define MMC_OCR_SECTOR_MODE		(1<<30)
+#define MMC_OCR_HCS			(1<<30)
+#define MMC_OCR_ACCESS_MODE_MASK	(3<<29) /* bits 30:29 */
+#define MMC_OCR_SECTOR_MODE		(1<<29)
 #define MMC_OCR_BYTE_MODE		(1<<29)
 #define MMC_OCR_3_5V_3_6V		(1<<23)
 #define MMC_OCR_3_4V_3_5V		(1<<22)
