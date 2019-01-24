@@ -114,6 +114,9 @@ struct bcm2835_mmc_softc {
 
 	u_int32_t		sc_dma_status;
 	u_int32_t		sc_dma_error;
+
+	// attached child driver
+	struct device		*sc_sdmmc;
 };
 
 // general driver functions
@@ -158,7 +161,7 @@ u_int32_t bcm2835_mmc_read(struct bcm2835_mmc_softc *, bus_size_t);
 int bcm2835_mmc_intr(void *);
 
 struct cfdriver bcm2835_mmc_cd = {
-	NULL, "sdhost", DV_DISK
+	NULL, "bcm2835_mmc", DV_DISK
 };
 
 int
@@ -174,6 +177,7 @@ bcm2835_mmc_attach(struct device *parent, struct device *self, void *aux)
 {
 	struct bcm2835_mmc_softc *sc = (struct bcm2835_mmc_softc *)self;
 	struct fdt_attach_args *faa = aux;
+	struct sdmmcbus_attach_args saa;
 	int rseg;
 
 	// load registers
@@ -242,7 +246,28 @@ bcm2835_mmc_attach(struct device *parent, struct device *self, void *aux)
 	// setup synchronisation primitives
 	mtx_init(&sc->sc_intr_lock, IPL_BIO);
 
+	// attach the parent driver
 	printf("\n");
+
+	bcm2835_mmc_host_reset(sc);
+	bcm2835_mmc_bus_width(sc, 1);
+	bcm2835_mmc_bus_clock(sc, 400, false);
+
+	memset(&saa, 0, sizeof(saa));
+	saa.saa_busname = "sdmmc";
+	saa.sct = &bcm2835_mmc_chip_functions;
+	saa.sch = sc;
+	saa.dmat = sc->sc_dmat;
+	saa.dmap = sc->sc_dmamap;
+	saa.flags = SMF_SD_MODE /*| SMF_MEM_MODE*/;
+	saa.caps = SMC_CAPS_DMA |
+		       SMC_CAPS_MULTI_SEG_DMA |
+		       SMC_CAPS_SD_HIGHSPEED |
+		       SMC_CAPS_MMC_HIGHSPEED |
+		SMC_CAPS_4BIT_MODE;
+
+
+	sc->sc_sdmmc = config_found(self, &saa, NULL);
 	return;
 
 clean_dmamap:
