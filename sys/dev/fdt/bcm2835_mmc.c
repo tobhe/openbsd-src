@@ -65,7 +65,9 @@
 #define	 SDVDD_POWER	(1 << 0)
 #define	SDEDM		0x34
 #define	 SDEDM_RD_FIFO	(((1 << 19) - 1) ^ ((1 << 14) - 1))
-#define	 SDEDM_WR_FIFO	(((1 << 13) - 1) ^ ((1 << 9) - 1))
+#define  SDEDM_RD_FIFO_BASE (1 << 14)
+#define	 SDEDM_WR_FIFO	(((1 << 14) - 1) ^ ((1 << 9) - 1))
+#define  SDEDM_WR_FIFO_BASE (1 << 9)
 #define	SDHCFG		0x38
 #define	 SDHCFG_BUSY_EN	(1 << 10)
 #define	 SDHCFG_BLOCK_EN (1 << 8)
@@ -80,33 +82,33 @@
 #define	SDHBLC		0x50
 
 struct bcm2835_mmc_softc {
-	// device
+	/* device */
 	struct device		sc_dev;
 
-	// interrupts
+	/* interrupts */
 	void			*sc_ih;
 
-	// registers
+	/* registers */
 	bus_space_tag_t		sc_iot;
 	bus_space_handle_t	sc_ioh;
 	bus_addr_t		sc_addr;
 	bus_size_t		sc_size;
 
-	// direct memory access
+	/* direct memory access */
 	bus_dma_tag_t		sc_dmat;
 	bus_dmamap_t		sc_dmamap;
 	bus_dma_segment_t	sc_segs[1];
 	struct bcm2835_dmac_conblk	*sc_cblk;
 	struct bcm2835_dmac_channel	*sc_dmac;
 
-	// synchronisation control
+	/* synchronisation control */
 	struct mutex		sc_intr_lock;
 	u_int32_t		sc_intr_hsts;
 	u_int32_t		sc_intr_cv;
 	u_int32_t		sc_dma_cv;
 
 
-	// data transfer stats
+	/* data transfer stats */
 	u_int			sc_rate;
 
 	int			sc_mmc_width;
@@ -115,11 +117,11 @@ struct bcm2835_mmc_softc {
 	u_int32_t		sc_dma_status;
 	u_int32_t		sc_dma_error;
 
-	// attached child driver
+	/* attached child driver */
 	struct device		*sc_sdmmc;
 };
 
-// general driver functions
+/* general driver functions */
 int bcm2835_mmc_match(struct device *, void *, void *);
 void bcm2835_mmc_attach(struct device *, struct device *, void *);
 int bcm2835_mmc_detach(struct device *, int);
@@ -131,7 +133,7 @@ struct cfattach bcm2835_mmc_ca = {
 	bcm2835_mmc_detach,
 };
 
-// sdmmc driver functions
+/* sdmmc driver functions */
 int bcm2835_mmc_host_reset(sdmmc_chipset_handle_t);
 u_int32_t bcm2835_mmc_host_ocr(sdmmc_chipset_handle_t);
 int bcm2835_mmc_host_maxblklen(sdmmc_chipset_handle_t);
@@ -151,7 +153,7 @@ struct sdmmc_chip_functions bcm2835_mmc_chip_functions = {
 	.exec_command = bcm2835_mmc_exec_command,
 };
 
-// driver logic
+/* driver logic */
 int bcm2835_mmc_wait_idle(struct bcm2835_mmc_softc *sc, int timeout);
 int bcm2835_mmc_dma_wait(struct bcm2835_mmc_softc *, struct sdmmc_command *);
 int bcm2835_mmc_dma_transfer(struct bcm2835_mmc_softc *, struct sdmmc_command *);
@@ -180,7 +182,10 @@ bcm2835_mmc_attach(struct device *parent, struct device *self, void *aux)
 	struct sdmmcbus_attach_args saa;
 	int rseg;
 
-	// load registers
+	/* setup synchronisation primitives */
+	mtx_init(&sc->sc_intr_lock, IPL_BIO);
+
+	/* load registers */
 	if (faa->fa_nreg < 1) {
 		printf(": no registers\n");
 		return;
@@ -195,17 +200,17 @@ bcm2835_mmc_attach(struct device *parent, struct device *self, void *aux)
 		return;
 	}
 
-	// check disabled XXX
+	/* check disabled XXX */
 
-	// enable clocks XXX error checks and detach
+	/* enable clocks */
 	clock_enable_all(faa->fa_node);
 
-	// load DMA
+	/* load DMA */
 	sc->sc_dmac = bcm2835_dmac_alloc(BCM2835_DMAC_TYPE_NORMAL, IPL_SDMMC,
 					 bcm2835_mmc_dma_done, sc);
 	if (sc->sc_dmac == NULL) {
 		printf(": can't open dmac\n");
-		goto clean_bus;
+		goto clean_clocks;
 	}
 
 	sc->sc_dmat = faa->fa_dmat;
@@ -235,19 +240,19 @@ bcm2835_mmc_attach(struct device *parent, struct device *self, void *aux)
 		goto clean_dmamap_destroy;
 	}
 
-	// enable interrupts
-	sc->sc_ih = fdt_intr_establish(faa->fa_node, IPL_BIO, bcm2835_mmc_intr,
+	/* enable interrupts */
+	sc->sc_ih = fdt_intr_establish(faa->fa_node, IPL_SDMMC, bcm2835_mmc_intr,
 				       sc, sc->sc_dev.dv_xname);
 	if (sc->sc_ih == NULL) {
 		printf(": can't establish interrupt\n");
 		goto clean_dmamap;
 	}
 
-	// setup synchronisation primitives
-	mtx_init(&sc->sc_intr_lock, IPL_BIO);
-
-	// attach the parent driver
+	/* attach the parent driver */
 	printf("\n");
+
+	tsleep(&sc->sc_intr_cv, PPAUSE, "pause", 0);
+
 
 	bcm2835_mmc_host_reset(sc);
 	bcm2835_mmc_bus_width(sc, 1);
@@ -264,7 +269,7 @@ bcm2835_mmc_attach(struct device *parent, struct device *self, void *aux)
 		       SMC_CAPS_MULTI_SEG_DMA |
 		       SMC_CAPS_SD_HIGHSPEED |
 		       SMC_CAPS_MMC_HIGHSPEED |
-		SMC_CAPS_4BIT_MODE;
+               SMC_CAPS_4BIT_MODE;
 
 
 	sc->sc_sdmmc = config_found(self, &saa, NULL);
@@ -280,7 +285,8 @@ clean_dmamap_free:
 	bus_dmamem_free(sc->sc_dmat, sc->sc_segs, 1);
 clean_dmac_channel:
 	bcm2835_dmac_free(sc->sc_dmac);
-clean_bus:
+clean_clocks:
+	clock_disable_all(faa->fa_node);
 	bus_space_unmap(sc->sc_iot, sc->sc_ioh, sc->sc_size);
 }
 
@@ -311,19 +317,20 @@ bcm2835_mmc_host_reset(sdmmc_chipset_handle_t sch)
 	bcm2835_mmc_write(sc, SDARG, 0);
 	bcm2835_mmc_write(sc, SDTOUT, SDTOUT_DEFAULT);
 	bcm2835_mmc_write(sc, SDCDIV, 0);
+	bcm2835_mmc_write(sc, SDHSTS, bcm2835_mmc_read(sc, SDHSTS));
 	bcm2835_mmc_write(sc, SDHCFG, 0);
 	bcm2835_mmc_write(sc, SDHBCT, 0);
 	bcm2835_mmc_write(sc, SDHBLC, 0);
 
 	edm = bcm2835_mmc_read(sc, SDEDM);
 	edm &= ~(SDEDM_RD_FIFO | SDEDM_WR_FIFO);
-	edm |= SDEDM_RD_FIFO << 4;
-	edm |= SDEDM_WR_FIFO << 4;
+	edm |= 4 * SDEDM_RD_FIFO_BASE;
+	edm |= 4 * SDEDM_WR_FIFO_BASE;
 	bcm2835_mmc_write(sc, SDEDM, edm);
 
-	DELAY(20000);
+	delay(20000);
 	bcm2835_mmc_write(sc, SDVDD, SDVDD_POWER);
-	DELAY(20000);
+	delay(20000);
 
 	bcm2835_mmc_write(sc, SDHCFG, 0);
 	bcm2835_mmc_write(sc, SDCDIV, SDCDIV_MASK);
@@ -404,6 +411,7 @@ bcm2835_mmc_exec_command(sdmmc_chipset_handle_t sch, struct sdmmc_command *cmd)
 	struct bcm2835_mmc_softc *sc = sch;
 	u_int32_t cmdval, hcfg;
 	u_int nblks;
+printf("%s: BEGIN exec_command\n", DEVNAME(sc));
 
 	mtx_enter(&sc->sc_intr_lock);
 
@@ -484,6 +492,8 @@ done:
 	bcm2835_mmc_write(sc, SDHCFG, hcfg);
 	bcm2835_mmc_write(sc, SDHSTS, bcm2835_mmc_read(sc, SDHSTS));
 	mtx_leave(&sc->sc_intr_lock);
+
+	printf("%s: command %d error %d\n", DEVNAME(sc), cmd->c_opcode, cmd->c_error);
 }
 
 int
@@ -547,9 +557,7 @@ bcm2835_mmc_dma_transfer(struct bcm2835_mmc_softc *sc, struct sdmmc_command *cmd
 		 */
 		KASSERTMSG((sc->sc_cblk[seg].cb_txfr_len & 0x3) == 0,
 			    "seg %zu len %d", seg, sc->sc_cblk[seg].cb_txfr_len);
-		/*
-		 * Use 128-bit mode if transfer is a multiple of 16 bytes.
-		 */
+		/* Use 128-bit mode if transfer is a multiple of 16 bytes.  */
 		if (ISSET(cmd->c_flags, SCF_CMD_READ)) {
 			sc->sc_cblk[seg].cb_ti |= DMAC_TI_DEST_INC;
 			if ((sc->sc_cblk[seg].cb_txfr_len & 0xf) == 0)
