@@ -290,7 +290,6 @@ bcm2835_mmc_attach_sdmmc(void *arg)
 	saa.sct = &bcm2835_mmc_chip_functions;
 	saa.sch = sc;
 	saa.dmat = sc->sc_dmat;
-	saa.dmap = sc->sc_dmamap;
 	saa.flags = SMF_SD_MODE /*| SMF_MEM_MODE*/;
 	saa.caps = SMC_CAPS_DMA |
 	    SMC_CAPS_MULTI_SEG_DMA |
