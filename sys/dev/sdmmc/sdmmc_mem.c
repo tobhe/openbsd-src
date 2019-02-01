@@ -454,12 +454,10 @@ sdmmc_mem_set_bus_width(struct sdmmc_function *sf, int width)
 	struct sdmmc_command cmd;
 	int error;
 
-printf("%s:%u\n", __func__, __LINE__);
 	memset(&cmd, 0, sizeof(cmd));
 	cmd.c_opcode = SD_APP_SET_BUS_WIDTH;
 	cmd.c_flags = SCF_RSP_R1 | SCF_CMD_AC;
 
-printf("%s:%u\n", __func__, __LINE__);
 	switch (width) {
 	case 1:
 		cmd.c_arg = SD_ARG_BUS_WIDTH_1;
@@ -473,12 +471,9 @@ printf("%s:%u\n", __func__, __LINE__);
 		return EINVAL;
 	}
 
-printf("%s:%u\n", __func__, __LINE__);
 	error = sdmmc_app_command(sc, &cmd);
-printf("%s:%u sc %p sct %p sch %p\n", __func__, __LINE__, sc, sc->sct, sc->sch);
 	if (error == 0)
 		error = sdmmc_chip_bus_width(sc->sct, sc->sch, width);
-printf("%s:%u\n", __func__, __LINE__);
 	return error;
 }
 
@@ -532,8 +527,6 @@ sdmmc_mem_mmc_switch(struct sdmmc_function *sf, uint8_t set, uint8_t index,
 {
 	struct sdmmc_softc *sc = sf->sc;
 	struct sdmmc_command cmd;
-
-printf("%s:%u\n", __func__, __LINE__);
 
 	memset(&cmd, 0, sizeof(cmd));
 	cmd.c_opcode = MMC_SWITCH;
@@ -594,67 +587,51 @@ sdmmc_mem_sd_init(struct sdmmc_softc *sc, struct sdmmc_function *sf)
 	 * RTS5229 host controller if it is running at a low clock
 	 * frequency.  Reading the SCR requires a data transfer.
 	 */
-printf("%s:%u\n", __func__, __LINE__);
 	error = sdmmc_chip_bus_clock(sc->sct, sc->sch, SDMMC_SDCLK_25MHZ,
 	    SDMMC_TIMING_LEGACY);
-printf("%s:%u\n", __func__, __LINE__);
 	if (error) {
 		printf("%s: can't change bus clock\n", DEVNAME(sc));
 		return error;
 	}
 
-printf("%s:%u\n", __func__, __LINE__);
 	error = sdmmc_mem_send_scr(sc, raw_scr);
-printf("%s:%u\n", __func__, __LINE__);
 	if (error) {
 		printf("%s: SD_SEND_SCR send failed\n", DEVNAME(sc));
 		return error;
 	}
-printf("%s:%u\n", __func__, __LINE__);
 	error = sdmmc_mem_decode_scr(sc, raw_scr, sf);
-printf("%s:%u\n", __func__, __LINE__);
 	if (error)
 		return error;
 
-printf("%s:%u\n", __func__, __LINE__);
 	if (ISSET(sc->sc_caps, SMC_CAPS_4BIT_MODE) &&
 	    ISSET(sf->scr.bus_width, SCR_SD_BUS_WIDTHS_4BIT)) {
-printf("%s:%u\n", __func__, __LINE__);
 		DPRINTF(("%s: change bus width\n", DEVNAME(sc)));
 		error = sdmmc_mem_set_bus_width(sf, 4);
-printf("%s:%u\n", __func__, __LINE__);
 		if (error) {
 			printf("%s: can't change bus width\n", DEVNAME(sc));
 			return error;
 		}
-printf("%s:%u\n", __func__, __LINE__);
 	}
 
-printf("%s:%u\n", __func__, __LINE__);
 	best_func = 0;
-printf("%s:%u\n", __func__, __LINE__);
 	if (sf->scr.sd_spec >= SCR_SD_SPEC_VER_1_10 &&
 	    ISSET(sf->csd.ccc, SD_CSD_CCC_SWITCH)) {
 		DPRINTF(("%s: switch func mode 0\n", DEVNAME(sc)));
-printf("%s:%u\n", __func__, __LINE__);
 		error = sdmmc_mem_sd_switch(sf, 0, 1, 0, &status);
 		if (error) {
 			printf("%s: switch func mode 0 failed\n", DEVNAME(sc));
 			return error;
 		}
 
-printf("%s:%u\n", __func__, __LINE__);
 		support_func = SFUNC_STATUS_GROUP(&status, 1);
 
 		if (support_func & (1 << SD_ACCESS_MODE_SDR25))
 			best_func = 1;
 	}
 
-printf("%s:%u\n", __func__, __LINE__);
 	if (best_func != 0) {
 		DPRINTF(("%s: switch func mode 1(func=%d)\n",
 		    DEVNAME(sc), best_func));
-printf("%s:%u\n", __func__, __LINE__);
 		error =
 		    sdmmc_mem_sd_switch(sf, 1, 1, best_func, &status);
 		if (error) {
@@ -664,11 +641,9 @@ printf("%s:%u\n", __func__, __LINE__);
 			return error;
 		}
 
-printf("%s:%u\n", __func__, __LINE__);
 		/* Wait 400KHz x 8 clock (2.5us * 8 + slop) */
 		delay(25);
 
-printf("%s:%u\n", __func__, __LINE__);
 		/* High Speed mode, Frequency up to 50MHz. */
 		error = sdmmc_chip_bus_clock(sc->sct, sc->sch,
 		    SDMMC_SDCLK_50MHZ, SDMMC_TIMING_HIGHSPEED);
@@ -727,7 +702,6 @@ sdmmc_mem_mmc_init(struct sdmmc_softc *sc, struct sdmmc_function *sf)
 
 		if (timing != SDMMC_TIMING_LEGACY) {
 			/* switch to high speed timing */
-printf("%s:%u\n", __func__, __LINE__);
 			error = sdmmc_mem_mmc_switch(sf, EXT_CSD_CMD_SET_NORMAL,
 			    EXT_CSD_HS_TIMING, EXT_CSD_HS_TIMING_HS);
 			if (error != 0) {
@@ -747,7 +721,6 @@ printf("%s:%u\n", __func__, __LINE__);
 
 		if (timing != SDMMC_TIMING_LEGACY) {
 			/* read EXT_CSD again */
-printf("%s:%u\n", __func__, __LINE__);
 			error = sdmmc_mem_send_cxd_data(sc,
 			    MMC_SEND_EXT_CSD, ext_csd, sizeof(ext_csd));
 			if (error != 0) {
@@ -772,7 +745,6 @@ printf("%s:%u\n", __func__, __LINE__);
 		}
 
 		if (width != 1) {
-printf("%s:%u\n", __func__, __LINE__);
 			error = sdmmc_mem_mmc_switch(sf, EXT_CSD_CMD_SET_NORMAL,
 			    EXT_CSD_BUS_WIDTH, value);
 			if (error == 0)
@@ -798,7 +770,6 @@ printf("%s:%u\n", __func__, __LINE__);
 				break;
 			}
 
-printf("%s:%u\n", __func__, __LINE__);
 			error = sdmmc_mem_mmc_switch(sf, EXT_CSD_CMD_SET_NORMAL,
 			    EXT_CSD_BUS_WIDTH, value);
 			if (error) {
