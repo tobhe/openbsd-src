@@ -281,9 +281,10 @@ bcm2835_mmc_attach_sdmmc(void *arg)
 	struct bcm2835_mmc_softc *sc = arg;
 	struct sdmmcbus_attach_args saa;
 
+	bcm2835_mmc_write(sc, SDHCFG, SDHCFG_BUSY_EN);
+	bcm2835_mmc_bus_clock(sc, 400, false);
 	bcm2835_mmc_host_reset(sc);
 	bcm2835_mmc_bus_width(sc, 1);
-	bcm2835_mmc_bus_clock(sc, 400, false);
 
 	memset(&saa, 0, sizeof(saa));
 	saa.saa_busname = "sdmmc";
@@ -342,8 +343,8 @@ bcm2835_mmc_host_reset(sdmmc_chipset_handle_t sch)
 	bcm2835_mmc_write(sc, SDVDD, SDVDD_POWER);
 	delay(20000);
 
-	bcm2835_mmc_write(sc, SDHCFG, 0);
-	bcm2835_mmc_write(sc, SDCDIV, SDCDIV_MASK);
+	bcm2835_mmc_write(sc, SDHCFG, bcm2835_mmc_read(sc, SDHCFG));
+	bcm2835_mmc_write(sc, SDCDIV, bcm2835_mmc_read(sc, SDCDIV));
 
 
 	return 0;
