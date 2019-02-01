@@ -209,6 +209,7 @@ bcm2835_mmc_attach(struct device *parent, struct device *self, void *aux)
 
 	/* enable clocks */
 	clock_enable_all(faa->fa_node);
+	sc->sc_rate = clock_get_frequency_idx(faa->fa_node, 0);
 
 	/* load DMA */
 	sc->sc_dmac = bcm2835_dmac_alloc(BCM2835_DMAC_TYPE_NORMAL, IPL_SDMMC,
