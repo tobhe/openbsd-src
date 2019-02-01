@@ -155,6 +155,7 @@ struct sdmmc_chip_functions bcm2835_mmc_chip_functions = {
 	.card_detect = bcm2835_mmc_card_detect,
 	.bus_power = bcm2835_mmc_bus_power,
 	.bus_clock = bcm2835_mmc_bus_clock,
+	.bus_width = bcm2835_mmc_bus_width,
 	.exec_command = bcm2835_mmc_exec_command,
 };
 

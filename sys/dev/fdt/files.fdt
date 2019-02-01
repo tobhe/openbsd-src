@@ -61,6 +61,10 @@ device	bcmaux
 attach	bcmaux at fdt
 file	dev/fdt/bcm2835_aux.c		bcmaux
 
+device	cprman
+attach	cprman at fdt
+file	dev/fdt/bcm2835_cprman.c	cprman
+
 device	bcmdog
 attach	bcmdog at fdt
 file	dev/fdt/bcm2835_dog.c		bcmdog

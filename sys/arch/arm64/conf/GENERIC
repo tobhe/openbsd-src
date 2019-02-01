@@ -126,7 +126,7 @@ ssdfb*		at spi?
 wsdisplay*	at ssdfb?
 
 # Raspberry Pi 3
-bcmaux*		at fdt?
+bcmaux*		at fdt? early 1
 bcmintc*	at fdt?
 bcmdog*		at fdt?
 bcmrng*		at fdt?
