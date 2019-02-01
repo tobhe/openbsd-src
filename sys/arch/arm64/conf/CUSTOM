@@ -12,4 +12,3 @@ bcm2835_dmac*	at fdt? early 1
 
 bcm2835_mmc*	at fdt?
 sdmmc*		at bcm2835_mmc?
-cprman*		at fdt? early 1
