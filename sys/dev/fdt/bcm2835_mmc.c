@@ -294,12 +294,9 @@ bcm2835_mmc_attach_sdmmc(void *arg)
 	memset(&saa, 0, sizeof(saa));
 	saa.saa_busname = "sdmmc";
 	saa.sct = &bcm2835_mmc_chip_functions;
-	printf("%s: sct %p\n", DEVNAME(sc), saa.sct);
 	saa.sch = sc;
-	printf("%s: sch %p\n", DEVNAME(sc), saa.sch);
 	saa.dmat = sc->sc_dmat;
-	saa.flags = SMF_SD_MODE | SMF_MEM_MODE;
-	//saa.flags = SMF_SD_MODE /*| SMF_MEM_MODE*/;
+	saa.flags = SMF_SD_MODE /*| SMF_MEM_MODE*/;
 	saa.caps = SMC_CAPS_DMA |
 	    SMC_CAPS_MULTI_SEG_DMA |
 	    SMC_CAPS_SD_HIGHSPEED |
