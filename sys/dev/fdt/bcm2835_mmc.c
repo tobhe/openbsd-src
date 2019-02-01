@@ -111,6 +111,7 @@ struct bcm2835_mmc_softc {
 
 	/* data transfer stats */
 	u_int			sc_rate;
+	uint32_t		sc_div; /* XXX */
 
 	int			sc_mmc_width;
 	int			sc_mmc_presnt;
@@ -204,6 +205,8 @@ bcm2835_mmc_attach(struct device *parent, struct device *self, void *aux)
 		printf(": can't map registers\n");
 		return;
 	}
+
+	sc->sc_div = bcm2385_mmc_read(sc, SDCDIV);
 
 	/* check disabled XXX */
 
@@ -396,7 +399,11 @@ bcm2835_mmc_bus_clock(sdmmc_chipset_handle_t sch, int freq, int ddr)
 			div = SDCDIV_MASK;
 	}
 
+#if 0
 	bcm2835_mmc_write(sc, SDCDIV, div);
+#else
+	bcm2835_mmc_write(sc, SDCDIV, sc->sc_div);
+#endif
 
 	return 0;
 }
