@@ -52,7 +52,7 @@
 #define  DMAC_DEBUG_FIFO_ERROR	(1<<1)
 #define  DMAC_DEBUG_READ_LAST_NOT_SET_ERROR (1<<0)
 
-struct bcm2835_dmac_conblk {
+struct bdmac_conblk {
 	uint32_t	cb_ti;
 #define DMAC_TI_NO_WIDE_BURSTS	(1<<26)
 #define DMAC_TI_WAITS		(((1<<26) - 1) ^ (1<<21))
@@ -85,18 +85,18 @@ struct bcm2835_dmac_conblk {
 #define DMAC_INT_STATUS		0xfe0
 #define DMAC_ENABLE		0xff0
 
-enum bcm2835_dmac_type {
-	BCM2835_DMAC_TYPE_NORMAL,
-	BCM2835_DMAC_TYPE_LITE
+enum bdmac_type {
+	BDMAC_TYPE_NORMAL,
+	BDMAC_TYPE_LITE
 };
 
-struct bcm2835_dmac_channel;
+struct bdmac_channel;
 
-struct bcm2835_dmac_channel *bcm2835_dmac_alloc(enum bcm2835_dmac_type, int,
+struct bdmac_channel *bdmac_alloc(enum bdmac_type, int,
 				void (*)(uint32_t, uint32_t, void *), void *);
-void bcm2835_dmac_free(struct bcm2835_dmac_channel *);
-void bcm2835_dmac_set_conblk_addr(struct bcm2835_dmac_channel *, bus_addr_t);
-int bcm2835_dmac_transfer(struct bcm2835_dmac_channel *);
-void bcm2835_dmac_halt(struct bcm2835_dmac_channel *);
+void bdmac_free(struct bdmac_channel *);
+void bdmac_set_conblk_addr(struct bdmac_channel *, bus_addr_t);
+int bdmac_transfer(struct bdmac_channel *);
+void bdmac_halt(struct bdmac_channel *);
 
 #endif /* BCM2835_DMAC_H */
