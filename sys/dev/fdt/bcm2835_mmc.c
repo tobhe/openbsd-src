@@ -120,7 +120,7 @@ struct bcm2835_mmc_softc {
 	u_int32_t		sc_dma_error;
 
 	/* attached child driver */
-	struct task		 sc_attach;
+	struct task		sc_attach;
 	struct device		*sc_sdmmc;
 
 };
@@ -212,7 +212,7 @@ bcm2835_mmc_attach(struct device *parent, struct device *self, void *aux)
 
 	/* enable clocks */
 	clock_enable_all(faa->fa_node);
-	sc->sc_rate = clock_get_frequency_idx(faa->fa_node, 0);
+	sc->sc_rate = 19200000;/*clock_get_frequency_idx(faa->fa_node, 0);*/
 
 	/* load DMA */
 	sc->sc_dmac = bcm2835_dmac_alloc(BCM2835_DMAC_TYPE_NORMAL, IPL_SDMMC,
@@ -398,11 +398,10 @@ bcm2835_mmc_bus_clock(sdmmc_chipset_handle_t sch, int freq, int ddr)
 			div = SDCDIV_MASK;
 	}
 
-#if 0
-	bcm2835_mmc_write(sc, SDCDIV, div);
-#else
-	bcm2835_mmc_write(sc, SDCDIV, sc->sc_div);
+#if 1
+	sc->sc_div = div;
 #endif
+	bcm2835_mmc_write(sc, SDCDIV, sc->sc_div);
 
 	return 0;
 }
