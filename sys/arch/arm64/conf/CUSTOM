@@ -8,7 +8,7 @@ option	SDMMC_DEBUG
 #option	WITNESS
 
 cpu*		at mainbus?
-bcm2835_dmac*	at fdt? early 1
+bdmac*	at fdt? early 1
 
-bcm2835_mmc*	at fdt?
-sdmmc*		at bcm2835_mmc?
+bmmc*	at fdt?
+sdmmc*		at bmmc?

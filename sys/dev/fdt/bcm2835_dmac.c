@@ -31,25 +31,25 @@
 
 #include "bcm2835_dmac.h"
 
-#define BCM2835_DMAC_CHANNELMASK	((1<<12) - 1)
+#define BDMAC_CHANNELMASK	((1<<12) - 1)
 #define DEVNAME(sc)   			((sc)->sc_dev.dv_xname)
 
-struct bcm2835_dmac_softc {
+struct bdmac_softc {
 	struct device			sc_dev;
 	bus_space_tag_t			sc_iot;
 	bus_space_handle_t		sc_ioh;
 	int				sc_fa_node;
 
 	struct mutex			sc_lock;
-	struct bcm2835_dmac_channel	*sc_channels;
+	struct bdmac_channel	*sc_channels;
 	int				sc_nchannels;
 	u_int32_t			sc_channelmask;
 };
 
 static volatile void *attached_sc = NULL;
 
-struct bcm2835_dmac_channel {
-	struct bcm2835_dmac_softc	*ch_sc;
+struct bdmac_channel {
+	struct bdmac_softc	*ch_sc;
 	void				*ch_ih;
 	u_int8_t			ch_index;
 	void				(*ch_callback)(u_int32_t, u_int32_t, void *);
@@ -57,50 +57,50 @@ struct bcm2835_dmac_channel {
 	u_int32_t			ch_debug;
 };
 
-int bcm2835_dmac_match(struct device *, void *, void *);
-void bcm2835_dmac_attach(struct device *, struct device *, void *);
+int bdmac_match(struct device *, void *, void *);
+void bdmac_attach(struct device *, struct device *, void *);
 
-struct cfattach bcm2835_dmac_ca = {
-	sizeof(struct bcm2835_dmac_softc),
-	bcm2835_dmac_match,
-	bcm2835_dmac_attach,
+struct cfattach bdmac_ca = {
+	sizeof(struct bdmac_softc),
+	bdmac_match,
+	bdmac_attach,
 };
 
-struct cfdriver bcm2835_dmac_cd = {
+struct cfdriver bdmac_cd = {
 	NULL, "dmac", DV_DULL
 };
 
 /* utilities */
-enum bcm2835_dmac_type
-bcm2835_dmac_channel_type(struct bcm2835_dmac_channel ch)
+enum bdmac_type
+bdmac_channel_type(struct bdmac_channel ch)
 {
 	if (ISSET(ch.ch_debug, DMAC_DEBUG_LITE))
-		return BCM2835_DMAC_TYPE_LITE;
+		return BDMAC_TYPE_LITE;
 	else
-		return BCM2835_DMAC_TYPE_NORMAL;
+		return BDMAC_TYPE_NORMAL;
 }
 
 int
-bcm2835_dmac_channel_used(struct bcm2835_dmac_channel ch)
+bdmac_channel_used(struct bdmac_channel ch)
 {
 	return ch.ch_callback != NULL;
 }
 
 void
-bcm2835_dmac_write(struct bcm2835_dmac_softc *sc, bus_size_t offset, u_int32_t value)
+bdmac_write(struct bdmac_softc *sc, bus_size_t offset, u_int32_t value)
 {
 	bus_space_write_4(sc->sc_iot, sc->sc_ioh, offset, value);
 }
 
 u_int32_t
-bcm2835_dmac_read(struct bcm2835_dmac_softc *sc, bus_size_t offset)
+bdmac_read(struct bdmac_softc *sc, bus_size_t offset)
 {
 	return bus_space_read_4(sc->sc_iot, sc->sc_ioh, offset);
 }
 
 /* driver handles */
 int
-bcm2835_dmac_match(struct device *parent, void *match, void *aux)
+bdmac_match(struct device *parent, void *match, void *aux)
 {
 	struct fdt_attach_args *faa = aux;
 
@@ -108,11 +108,11 @@ bcm2835_dmac_match(struct device *parent, void *match, void *aux)
 }
 
 void
-bcm2835_dmac_attach(struct device *parent, struct device *self, void *aux)
+bdmac_attach(struct device *parent, struct device *self, void *aux)
 {
-	struct bcm2835_dmac_softc *sc = (struct bcm2835_dmac_softc *)self;
+	struct bdmac_softc *sc = (struct bdmac_softc *)self;
 	struct fdt_attach_args *faa = aux;
-	struct bcm2835_dmac_channel *ch;
+	struct bdmac_channel *ch;
 	u_int32_t val;
 	int index;
 
@@ -140,7 +140,7 @@ bcm2835_dmac_attach(struct device *parent, struct device *self, void *aux)
 	}
 
 	sc->sc_channelmask = OF_getpropint(faa->fa_node, "brcm,dma-channel-mask", -1);
-	sc->sc_channelmask &= BCM2835_DMAC_CHANNELMASK;
+	sc->sc_channelmask &= BDMAC_CHANNELMASK;
 
 	mtx_init(&sc->sc_lock, IPL_SCHED);
 
@@ -160,31 +160,31 @@ bcm2835_dmac_attach(struct device *parent, struct device *self, void *aux)
 			continue;
 		}
 
-		ch->ch_debug = bcm2835_dmac_read(sc, DMAC_DEBUG(index));
+		ch->ch_debug = bdmac_read(sc, DMAC_DEBUG(index));
 
-		val = bcm2835_dmac_read(sc, DMAC_CS(index));
+		val = bdmac_read(sc, DMAC_CS(index));
 		val |= DMAC_CS_RESET;
-		bcm2835_dmac_write(sc, DMAC_CS(index), val);
+		bdmac_write(sc, DMAC_CS(index), val);
 	}
 
 	printf("\n");
 }
 
 int
-bcm2835_dmac_intr(void *arg)
+bdmac_intr(void *arg)
 {
-	struct bcm2835_dmac_channel *ch = arg;
-	struct bcm2835_dmac_softc *sc = ch->ch_sc;
+	struct bdmac_channel *ch = arg;
+	struct bdmac_softc *sc = ch->ch_sc;
 	u_int32_t cs, ce;
 
-	cs = bcm2835_dmac_read(sc, DMAC_CS(ch->ch_index));
-	bcm2835_dmac_write(sc, DMAC_CS(ch->ch_index), cs);
+	cs = bdmac_read(sc, DMAC_CS(ch->ch_index));
+	bdmac_write(sc, DMAC_CS(ch->ch_index), cs);
 	cs &= DMAC_CS_INT | DMAC_CS_END | DMAC_CS_ERROR;
 
-	ce = bcm2835_dmac_read(sc, DMAC_DEBUG(ch->ch_index));
+	ce = bdmac_read(sc, DMAC_DEBUG(ch->ch_index));
 	ce &= DMAC_DEBUG_READ_ERROR | DMAC_DEBUG_FIFO_ERROR
 	    | DMAC_DEBUG_READ_LAST_NOT_SET_ERROR;
-	bcm2835_dmac_write(sc, DMAC_DEBUG(ch->ch_index), ce);
+	bdmac_write(sc, DMAC_DEBUG(ch->ch_index), ce);
 
 	if (ch->ch_callback)
 		ch->ch_callback(cs, ce, ch->ch_callbackarg);
@@ -192,18 +192,18 @@ bcm2835_dmac_intr(void *arg)
 	return 1;
 }
 
-struct bcm2835_dmac_channel *
-bcm2835_dmac_alloc(enum bcm2835_dmac_type type, int ipl,
+struct bdmac_channel *
+bdmac_alloc(enum bdmac_type type, int ipl,
 	       void (*cb)(u_int32_t, u_int32_t, void *), void *cbarg)
 {
-	struct bcm2835_dmac_softc *sc;
-	struct bcm2835_dmac_channel *ch = NULL;
+	struct bdmac_softc *sc;
+	struct bdmac_channel *ch = NULL;
 	int index;
 
 	// get the current ptr - this is in a loop in case someone modifies it
 	// while we are going
 	do {
-		sc = (struct bcm2835_dmac_softc *)attached_sc;
+		sc = (struct bdmac_softc *)attached_sc;
 	} while (sc != atomic_cas_ptr(&attached_sc, sc, sc));
 
 	if (sc == NULL)
@@ -213,9 +213,9 @@ bcm2835_dmac_alloc(enum bcm2835_dmac_type type, int ipl,
 	for (index = 0; index < sc->sc_nchannels; ++index) {
 		if (!ISSET(sc->sc_channelmask, (1<<index)))
 			continue;
-		if (bcm2835_dmac_channel_type(sc->sc_channels[index]) != type)
+		if (bdmac_channel_type(sc->sc_channels[index]) != type)
 			continue;
-		if (bcm2835_dmac_channel_used(sc->sc_channels[index]))
+		if (bdmac_channel_used(sc->sc_channels[index]))
 			continue;
 
 		ch = &sc->sc_channels[index];
@@ -231,7 +231,7 @@ bcm2835_dmac_alloc(enum bcm2835_dmac_type type, int ipl,
 	KASSERT(ch->ch_ih == NULL);
 
 	ch->ch_ih = fdt_intr_establish_idx(sc->sc_fa_node, ch->ch_index, ipl,
-				       bcm2835_dmac_intr, ch,
+				       bdmac_intr, ch,
 				       sc->sc_dev.dv_xname);
 
 	if (ch->ch_ih == NULL) {
@@ -246,18 +246,18 @@ bcm2835_dmac_alloc(enum bcm2835_dmac_type type, int ipl,
 }
 
 void
-bcm2835_dmac_free(struct bcm2835_dmac_channel *ch)
+bdmac_free(struct bdmac_channel *ch)
 {
-	struct bcm2835_dmac_softc *sc = ch->ch_sc;
+	struct bdmac_softc *sc = ch->ch_sc;
 	u_int32_t val;
 
-	bcm2835_dmac_halt(ch);
+	bdmac_halt(ch);
 
 	/* reset chip */
-	val = bcm2835_dmac_read(sc, DMAC_CS(ch->ch_index));
+	val = bdmac_read(sc, DMAC_CS(ch->ch_index));
 	val |= DMAC_CS_RESET;
 	val &= ~DMAC_CS_ACTIVE;
-	bcm2835_dmac_write(sc, DMAC_CS(ch->ch_index), val);
+	bdmac_write(sc, DMAC_CS(ch->ch_index), val);
 
 	mtx_enter(&sc->sc_lock);
 
@@ -270,46 +270,46 @@ bcm2835_dmac_free(struct bcm2835_dmac_channel *ch)
 }
 
 void
-bcm2835_dmac_set_conblk_addr(struct bcm2835_dmac_channel *ch, bus_addr_t addr)
+bdmac_set_conblk_addr(struct bdmac_channel *ch, bus_addr_t addr)
 {
-	struct bcm2835_dmac_softc *sc = ch->ch_sc;
+	struct bdmac_softc *sc = ch->ch_sc;
 
-	bcm2835_dmac_write(sc, DMAC_CONBLK_AD(ch->ch_index), addr);
+	bdmac_write(sc, DMAC_CONBLK_AD(ch->ch_index), addr);
 }
 
 int
-bcm2835_dmac_transfer(struct bcm2835_dmac_channel *ch)
+bdmac_transfer(struct bdmac_channel *ch)
 {
-	struct bcm2835_dmac_softc *sc = ch->ch_sc;
+	struct bdmac_softc *sc = ch->ch_sc;
 	u_int32_t val;
 
-	val = bcm2835_dmac_read(sc, DMAC_CS(ch->ch_index));
+	val = bdmac_read(sc, DMAC_CS(ch->ch_index));
 	if (ISSET(val, DMAC_CS_ACTIVE))
 		return EBUSY;
 
 	val |= DMAC_CS_ACTIVE;
-	bcm2835_dmac_write(sc, DMAC_CS(ch->ch_index), val);
+	bdmac_write(sc, DMAC_CS(ch->ch_index), val);
 
 	return 0;
 }
 
 void
-bcm2835_dmac_halt(struct bcm2835_dmac_channel *ch)
+bdmac_halt(struct bdmac_channel *ch)
 {
-	struct bcm2835_dmac_softc *sc = ch->ch_sc;
+	struct bdmac_softc *sc = ch->ch_sc;
 	u_int32_t val;
 
 	/* pause DMA */
-	val = bcm2835_dmac_read(sc, DMAC_CS(ch->ch_index));
+	val = bdmac_read(sc, DMAC_CS(ch->ch_index));
 	val &= ~DMAC_CS_ACTIVE;
-	bcm2835_dmac_write(sc, DMAC_CS(ch->ch_index), val);
+	bdmac_write(sc, DMAC_CS(ch->ch_index), val);
 
 	/* XXX wait for paused state */
 
 	/* end descriptor chain */
-	bcm2835_dmac_write(sc, DMAC_NEXTCONBK(ch->ch_index), 0);
+	bdmac_write(sc, DMAC_NEXTCONBK(ch->ch_index), 0);
 
 	/* resume DMA, which then stops */
 	val |= DMAC_CS_ACTIVE | DMAC_CS_ABORT;
-	bcm2835_dmac_write(sc, DMAC_CS(ch->ch_index), val);
+	bdmac_write(sc, DMAC_CS(ch->ch_index), val);
 }
