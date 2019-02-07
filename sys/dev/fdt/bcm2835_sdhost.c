@@ -112,7 +112,7 @@
 #define	SDDATA		0x40
 #define	SDHBLC		0x50
 
-struct bmmc_softc {
+struct bsdhost_softc {
 	/* device */
 	struct device		sc_dev;
 
@@ -156,55 +156,55 @@ struct bmmc_softc {
 };
 
 /* general driver functions */
-int bmmc_match(struct device *, void *, void *);
-void bmmc_attach(struct device *, struct device *, void *);
-int bmmc_detach(struct device *, int);
+int bsdhost_match(struct device *, void *, void *);
+void bsdhost_attach(struct device *, struct device *, void *);
+int bsdhost_detach(struct device *, int);
 
-struct cfattach bmmc_ca = {
-	sizeof(struct bmmc_softc),
-	bmmc_match,
-	bmmc_attach,
-	bmmc_detach,
+struct cfattach bsdhost_ca = {
+	sizeof(struct bsdhost_softc),
+	bsdhost_match,
+	bsdhost_attach,
+	bsdhost_detach,
 };
 
-void bmmc_attach_sdmmc(void *);
+void bsdhost_attach_sdmmc(void *);
 
 /* sdmmc driver functions */
-int bmmc_host_reset(sdmmc_chipset_handle_t);
-u_int32_t bmmc_host_ocr(sdmmc_chipset_handle_t);
-int bmmc_host_maxblklen(sdmmc_chipset_handle_t);
-int bmmc_card_detect(sdmmc_chipset_handle_t);
-int bmmc_bus_power(sdmmc_chipset_handle_t, u_int32_t);
-int bmmc_bus_clock(sdmmc_chipset_handle_t, int, int);
-int bmmc_bus_width(sdmmc_chipset_handle_t, int);
-void bmmc_exec_command(sdmmc_chipset_handle_t, struct sdmmc_command *);
+int bsdhost_host_reset(sdmmc_chipset_handle_t);
+u_int32_t bsdhost_host_ocr(sdmmc_chipset_handle_t);
+int bsdhost_host_maxblklen(sdmmc_chipset_handle_t);
+int bsdhost_card_detect(sdmmc_chipset_handle_t);
+int bsdhost_bus_power(sdmmc_chipset_handle_t, u_int32_t);
+int bsdhost_bus_clock(sdmmc_chipset_handle_t, int, int);
+int bsdhost_bus_width(sdmmc_chipset_handle_t, int);
+void bsdhost_exec_command(sdmmc_chipset_handle_t, struct sdmmc_command *);
 
-struct sdmmc_chip_functions bmmc_chip_functions = {
-	.host_reset = bmmc_host_reset,
-	.host_ocr = bmmc_host_ocr,
-	.host_maxblklen = bmmc_host_maxblklen,
-	.card_detect = bmmc_card_detect,
-	.bus_power = bmmc_bus_power,
-	.bus_clock = bmmc_bus_clock,
-	.bus_width = bmmc_bus_width,
-	.exec_command = bmmc_exec_command,
+struct sdmmc_chip_functions bsdhost_chip_functions = {
+	.host_reset = bsdhost_host_reset,
+	.host_ocr = bsdhost_host_ocr,
+	.host_maxblklen = bsdhost_host_maxblklen,
+	.card_detect = bsdhost_card_detect,
+	.bus_power = bsdhost_bus_power,
+	.bus_clock = bsdhost_bus_clock,
+	.bus_width = bsdhost_bus_width,
+	.exec_command = bsdhost_exec_command,
 };
 
 /* driver logic */
-int bmmc_wait_idle(struct bmmc_softc *sc, int timeout);
-int bmmc_dma_wait(struct bmmc_softc *, struct sdmmc_command *);
-int bmmc_dma_transfer(struct bmmc_softc *, struct sdmmc_command *);
-void bmmc_dma_done(u_int32_t, u_int32_t, void *);
-void bmmc_write(struct bmmc_softc *, bus_size_t, u_int32_t);
-u_int32_t bmmc_read(struct bmmc_softc *, bus_size_t);
-int bmmc_intr(void *);
+int bsdhost_wait_idle(struct bsdhost_softc *sc, int timeout);
+int bsdhost_dma_wait(struct bsdhost_softc *, struct sdmmc_command *);
+int bsdhost_dma_transfer(struct bsdhost_softc *, struct sdmmc_command *);
+void bsdhost_dma_done(u_int32_t, u_int32_t, void *);
+void bsdhost_write(struct bsdhost_softc *, bus_size_t, u_int32_t);
+u_int32_t bsdhost_read(struct bsdhost_softc *, bus_size_t);
+int bsdhost_intr(void *);
 
-struct cfdriver bmmc_cd = {
-	NULL, "bmmc", DV_DISK
+struct cfdriver bsdhost_cd = {
+	NULL, "bsdhost", DV_DISK
 };
 
 int
-bmmc_match(struct device *parent, void *match, void *aux)
+bsdhost_match(struct device *parent, void *match, void *aux)
 {
 	struct fdt_attach_args *faa = aux;
 
@@ -212,9 +212,9 @@ bmmc_match(struct device *parent, void *match, void *aux)
 }
 
 void
-bmmc_attach(struct device *parent, struct device *self, void *aux)
+bsdhost_attach(struct device *parent, struct device *self, void *aux)
 {
-	struct bmmc_softc *sc = (struct bmmc_softc *)self;
+	struct bsdhost_softc *sc = (struct bsdhost_softc *)self;
 	struct fdt_attach_args *faa = aux;
 	int rseg;
 
@@ -236,7 +236,7 @@ bmmc_attach(struct device *parent, struct device *self, void *aux)
 		return;
 	}
 
-	sc->sc_div = bmmc_read(sc, SDCDIV);
+	sc->sc_div = bsdhost_read(sc, SDCDIV);
 
 	/* check disabled XXX */
 
@@ -246,7 +246,7 @@ bmmc_attach(struct device *parent, struct device *self, void *aux)
 
 	/* load DMA */
 	sc->sc_dmac = bdmac_alloc(BDMAC_TYPE_NORMAL, IPL_SDMMC,
-					 bmmc_dma_done, sc);
+					 bsdhost_dma_done, sc);
 	if (sc->sc_dmac == NULL) {
 		printf(": can't open dmac\n");
 		goto clean_clocks;
@@ -280,7 +280,7 @@ bmmc_attach(struct device *parent, struct device *self, void *aux)
 	}
 
 	/* enable interrupts */
-	sc->sc_ih = fdt_intr_establish(faa->fa_node, IPL_SDMMC, bmmc_intr,
+	sc->sc_ih = fdt_intr_establish(faa->fa_node, IPL_SDMMC, bsdhost_intr,
 				       sc, sc->sc_dev.dv_xname);
 	if (sc->sc_ih == NULL) {
 		printf(": can't establish interrupt\n");
@@ -290,7 +290,7 @@ bmmc_attach(struct device *parent, struct device *self, void *aux)
 	/* attach the parent driver */
 	printf(": %uHz %08x\n", sc->sc_rate, sc->sc_div);
 
-	task_set(&sc->sc_attach, bmmc_attach_sdmmc, sc);
+	task_set(&sc->sc_attach, bsdhost_attach_sdmmc, sc);
 	task_add(systq, &sc->sc_attach);
 
 	return;
@@ -311,19 +311,19 @@ clean_clocks:
 }
 
 void
-bmmc_attach_sdmmc(void *arg)
+bsdhost_attach_sdmmc(void *arg)
 {
-	struct bmmc_softc *sc = arg;
+	struct bsdhost_softc *sc = arg;
 	struct sdmmcbus_attach_args saa;
 
-	bmmc_write(sc, SDHCFG, SDHCFG_BUSY_EN);
-	bmmc_bus_clock(sc, 400, false);
-	bmmc_host_reset(sc);
-	bmmc_bus_width(sc, 1);
+	bsdhost_write(sc, SDHCFG, SDHCFG_BUSY_EN);
+	bsdhost_bus_clock(sc, 400, false);
+	bsdhost_host_reset(sc);
+	bsdhost_bus_width(sc, 1);
 
 	memset(&saa, 0, sizeof(saa));
 	saa.saa_busname = "sdmmc";
-	saa.sct = &bmmc_chip_functions;
+	saa.sct = &bsdhost_chip_functions;
 	saa.sch = sc;
 	saa.dmat = sc->sc_dmat;
 	saa.flags = SMF_SD_MODE /*| SMF_MEM_MODE*/;
@@ -337,9 +337,9 @@ bmmc_attach_sdmmc(void *arg)
 }
 
 int 
-bmmc_detach(struct device *self, int flags)
+bsdhost_detach(struct device *self, int flags)
 {
-	struct bmmc_softc *sc = (struct bmmc_softc *)self;
+	struct bsdhost_softc *sc = (struct bsdhost_softc *)self;
 
 	// XXX
 	bus_dmamap_unload(sc->sc_dmat, sc->sc_dmamap);
@@ -353,65 +353,65 @@ bmmc_detach(struct device *self, int flags)
 
 
 int
-bmmc_host_reset(sdmmc_chipset_handle_t sch)
+bsdhost_host_reset(sdmmc_chipset_handle_t sch)
 {
-	struct bmmc_softc *sc = sch;
+	struct bsdhost_softc *sc = sch;
 	u_int32_t edm;
 
-	bmmc_write(sc, SDVDD, 0);
-	bmmc_write(sc, SDCMD, 0);
-	bmmc_write(sc, SDARG, 0);
-	bmmc_write(sc, SDTOUT, SDTOUT_DEFAULT);
-	bmmc_write(sc, SDCDIV, 0);
-	bmmc_write(sc, SDHSTS, bmmc_read(sc, SDHSTS));
-	bmmc_write(sc, SDHCFG, 0);
-	bmmc_write(sc, SDHBCT, 0);
-	bmmc_write(sc, SDHBLC, 0);
+	bsdhost_write(sc, SDVDD, 0);
+	bsdhost_write(sc, SDCMD, 0);
+	bsdhost_write(sc, SDARG, 0);
+	bsdhost_write(sc, SDTOUT, SDTOUT_DEFAULT);
+	bsdhost_write(sc, SDCDIV, 0);
+	bsdhost_write(sc, SDHSTS, bsdhost_read(sc, SDHSTS));
+	bsdhost_write(sc, SDHCFG, 0);
+	bsdhost_write(sc, SDHBCT, 0);
+	bsdhost_write(sc, SDHBLC, 0);
 
-	edm = bmmc_read(sc, SDEDM);
+	edm = bsdhost_read(sc, SDEDM);
 	edm &= ~(SDEDM_RD_FIFO | SDEDM_WR_FIFO);
 	edm |= 4 * SDEDM_RD_FIFO_BASE;
 	edm |= 4 * SDEDM_WR_FIFO_BASE;
-	bmmc_write(sc, SDEDM, edm);
+	bsdhost_write(sc, SDEDM, edm);
 
 	delay(20000);
-	bmmc_write(sc, SDVDD, SDVDD_POWER);
+	bsdhost_write(sc, SDVDD, SDVDD_POWER);
 	delay(20000);
 
-	bmmc_write(sc, SDHCFG, bmmc_read(sc, SDHCFG));
-	bmmc_write(sc, SDCDIV, bmmc_read(sc, SDCDIV));
+	bsdhost_write(sc, SDHCFG, bsdhost_read(sc, SDHCFG));
+	bsdhost_write(sc, SDCDIV, bsdhost_read(sc, SDCDIV));
 
 	return 0;
 }
 
 u_int32_t
-bmmc_host_ocr(sdmmc_chipset_handle_t sch)
+bsdhost_host_ocr(sdmmc_chipset_handle_t sch)
 {
 	return MMC_OCR_3_2V_3_3V | MMC_OCR_3_3V_3_4V | MMC_OCR_HCS;
 }
 
 int
-bmmc_host_maxblklen(sdmmc_chipset_handle_t sch)
+bsdhost_host_maxblklen(sdmmc_chipset_handle_t sch)
 {
 	return 8192;
 }
 
 int
-bmmc_card_detect(sdmmc_chipset_handle_t sch)
+bsdhost_card_detect(sdmmc_chipset_handle_t sch)
 {
 	return 1; /* XXX */
 }
 
 int
-bmmc_bus_power(sdmmc_chipset_handle_t sch, u_int32_t ocr)
+bsdhost_bus_power(sdmmc_chipset_handle_t sch, u_int32_t ocr)
 {
 	return 0;
 }
 
 int
-bmmc_bus_clock(sdmmc_chipset_handle_t sch, int freq, int ddr)
+bsdhost_bus_clock(sdmmc_chipset_handle_t sch, int freq, int ddr)
 {
-	struct bmmc_softc *sc = sch;
+	struct bsdhost_softc *sc = sch;
 	u_int target_rate = freq * 1000;
 	int div;
 
@@ -429,32 +429,32 @@ bmmc_bus_clock(sdmmc_chipset_handle_t sch, int freq, int ddr)
 	}
 
 	sc->sc_div = div;
-	bmmc_write(sc, SDCDIV, sc->sc_div);
+	bsdhost_write(sc, SDCDIV, sc->sc_div);
 
 	return 0;
 }
 
 int
-bmmc_bus_width(sdmmc_chipset_handle_t sch, int width)
+bsdhost_bus_width(sdmmc_chipset_handle_t sch, int width)
 {
-	struct bmmc_softc *sc = sch;
+	struct bsdhost_softc *sc = sch;
 	u_int32_t hcfg;
 
-	hcfg = bmmc_read(sc, SDHCFG);
+	hcfg = bsdhost_read(sc, SDHCFG);
 	if (width == 4)
 		hcfg |= SDHCFG_WIDE_EXT;
 	else
 		hcfg &= ~SDHCFG_WIDE_EXT;
 	hcfg |= (SDHCFG_WIDE_INT | SDHCFG_SLOW);
-	bmmc_write(sc, SDHCFG, hcfg);
+	bsdhost_write(sc, SDHCFG, hcfg);
 
 	return 0;
 }
 
 void
-bmmc_exec_command(sdmmc_chipset_handle_t sch, struct sdmmc_command *cmd)
+bsdhost_exec_command(sdmmc_chipset_handle_t sch, struct sdmmc_command *cmd)
 {
-	struct bmmc_softc *sc = sch;
+	struct bsdhost_softc *sc = sch;
 	u_int32_t cmdval, hcfg;
 	u_int nblks;
 	unsigned int line = 0;
@@ -465,12 +465,12 @@ bmmc_exec_command(sdmmc_chipset_handle_t sch, struct sdmmc_command *cmd)
 
 	mtx_enter(&sc->sc_intr_lock);
 
-	hcfg = bmmc_read(sc, SDHCFG);
-	bmmc_write(sc, SDHCFG, hcfg | SDHCFG_BUSY_EN);
+	hcfg = bsdhost_read(sc, SDHCFG);
+	bsdhost_write(sc, SDHCFG, hcfg | SDHCFG_BUSY_EN);
 
 	sc->sc_intr_hsts = 0;
 
-	cmd->c_error = bmmc_wait_idle(sc, 5000);
+	cmd->c_error = bsdhost_wait_idle(sc, 5000);
 	if (cmd->c_error != 0) // device busy
 		goto done;
 
@@ -492,42 +492,42 @@ bmmc_exec_command(sdmmc_chipset_handle_t sch, struct sdmmc_command *cmd)
 		if (nblks == 0 || (cmd->c_datalen % cmd->c_blklen) != 0)
 			++nblks;
 
-		bmmc_write(sc, SDHBCT, cmd->c_blklen);
-		bmmc_write(sc, SDHBLC, nblks);
+		bsdhost_write(sc, SDHBCT, cmd->c_blklen);
+		bsdhost_write(sc, SDHBLC, nblks);
 
 		cmd->c_resid = cmd->c_datalen;
-		cmd->c_error = bmmc_dma_transfer(sc, cmd);
+		cmd->c_error = bsdhost_dma_transfer(sc, cmd);
 		if (cmd->c_error != 0) { line = __LINE__;
 			goto done;
 		}
 	}
 
-	bmmc_write(sc, SDARG, cmd->c_arg);
-	bmmc_write(sc, SDCMD, cmdval | cmd->c_opcode);
+	bsdhost_write(sc, SDARG, cmd->c_arg);
+	bsdhost_write(sc, SDCMD, cmdval | cmd->c_opcode);
 
 	if (cmd->c_datalen > 0) {
-		cmd->c_error = bmmc_dma_wait(sc, cmd);
+		cmd->c_error = bsdhost_dma_wait(sc, cmd);
 		if (cmd->c_error != 0) { line = __LINE__;
 			goto done;
 		}
 	}
 
-	cmd->c_error = bmmc_wait_idle(sc, 5000);
+	cmd->c_error = bsdhost_wait_idle(sc, 5000);
 	if (cmd->c_error != 0) { line = __LINE__;
 		goto done;
 	}
 
-	if (ISSET(bmmc_read(sc, SDCMD), SDCMD_FAIL)) { line = __LINE__;
+	if (ISSET(bsdhost_read(sc, SDCMD), SDCMD_FAIL)) { line = __LINE__;
 		cmd->c_error = EIO;
 		goto done;
 	}
 
 	if (ISSET(cmd->c_flags, SCF_RSP_PRESENT)) {
 		if (ISSET(cmd->c_flags, SCF_RSP_136)) {
-			cmd->c_resp[0] = bmmc_read(sc, SDRSP0);
-			cmd->c_resp[1] = bmmc_read(sc, SDRSP1);
-			cmd->c_resp[2] = bmmc_read(sc, SDRSP2);
-			cmd->c_resp[3] = bmmc_read(sc, SDRSP3);
+			cmd->c_resp[0] = bsdhost_read(sc, SDRSP0);
+			cmd->c_resp[1] = bsdhost_read(sc, SDRSP1);
+			cmd->c_resp[2] = bsdhost_read(sc, SDRSP2);
+			cmd->c_resp[3] = bsdhost_read(sc, SDRSP3);
 			if (ISSET(cmd->c_flags, SCF_RSP_CRC)) {
 				cmd->c_resp[0] = (cmd->c_resp[0] >> 8) |
 					(cmd->c_resp[1] << 24);
@@ -538,14 +538,14 @@ bmmc_exec_command(sdmmc_chipset_handle_t sch, struct sdmmc_command *cmd)
 				cmd->c_resp[3] = (cmd->c_resp[3] >> 8);
 			}
 		} else {
-			cmd->c_resp[0] = bmmc_read(sc, SDRSP0);
+			cmd->c_resp[0] = bsdhost_read(sc, SDRSP0);
 		}
 	}
 
 done:
 	cmd->c_flags |= SCF_ITSDONE;
-	bmmc_write(sc, SDHCFG, hcfg);
-	bmmc_write(sc, SDHSTS, bmmc_read(sc, SDHSTS));
+	bsdhost_write(sc, SDHCFG, hcfg);
+	bsdhost_write(sc, SDHSTS, bsdhost_read(sc, SDHSTS));
 	mtx_leave(&sc->sc_intr_lock);
 
 	if (cmd->c_error) {
@@ -555,14 +555,14 @@ done:
 }
 
 int
-bmmc_wait_idle(struct bmmc_softc *sc, int timeout)
+bsdhost_wait_idle(struct bsdhost_softc *sc, int timeout)
 {
 	int retry;
 
 	retry = timeout * 1000;
 
 	while (--retry > 0) {
-		const u_int32_t cmd = bmmc_read(sc, SDCMD);
+		const u_int32_t cmd = bsdhost_read(sc, SDCMD);
 		if (!ISSET(cmd, SDCMD_NEW))
 			return 0;
 		delay(1);
@@ -572,7 +572,7 @@ bmmc_wait_idle(struct bmmc_softc *sc, int timeout)
 }
 
 int
-bmmc_dma_wait(struct bmmc_softc *sc, struct sdmmc_command *cmd)
+bsdhost_dma_wait(struct bsdhost_softc *sc, struct sdmmc_command *cmd)
 {
 	int error = 0;
 
@@ -601,7 +601,7 @@ error:
 }
 
 int
-bmmc_dma_transfer(struct bmmc_softc *sc, struct sdmmc_command *cmd)
+bsdhost_dma_transfer(struct bsdhost_softc *sc, struct sdmmc_command *cmd)
 {
 	size_t seg;
 	int error;
@@ -673,9 +673,9 @@ bmmc_dma_transfer(struct bmmc_softc *sc, struct sdmmc_command *cmd)
 }
 
 void
-bmmc_dma_done(u_int32_t status, u_int32_t error, void *arg)
+bsdhost_dma_done(u_int32_t status, u_int32_t error, void *arg)
 {
-	struct bmmc_softc *sc = arg;
+	struct bsdhost_softc *sc = arg;
 
 	if (status != (DMAC_CS_INT | DMAC_CS_END))
 		printf("%s: dma status %#x error %#x\n", DEVNAME(sc), status,
@@ -691,27 +691,27 @@ bmmc_dma_done(u_int32_t status, u_int32_t error, void *arg)
 }
 
 void
-bmmc_write(struct bmmc_softc *sc, bus_size_t offset, u_int32_t value)
+bsdhost_write(struct bsdhost_softc *sc, bus_size_t offset, u_int32_t value)
 {
 	bus_space_write_4(sc->sc_iot, sc->sc_ioh, offset, value);
 }
 
 u_int32_t
-bmmc_read(struct bmmc_softc *sc, bus_size_t offset)
+bsdhost_read(struct bsdhost_softc *sc, bus_size_t offset)
 {
 	return bus_space_read_4(sc->sc_iot, sc->sc_ioh, offset);
 }
 
 int
-bmmc_intr(void *priv)
+bsdhost_intr(void *priv)
 {
-	struct bmmc_softc *sc = priv;
+	struct bsdhost_softc *sc = priv;
 
 	mtx_enter(&sc->sc_intr_lock);
-	const u_int32_t hsts = bmmc_read(sc, SDHSTS);
+	const u_int32_t hsts = bsdhost_read(sc, SDHSTS);
 
 	if (hsts) {
-		bmmc_write(sc, SDHSTS, hsts);
+		bsdhost_write(sc, SDHSTS, hsts);
 		sc->sc_intr_hsts |= hsts;
 		wakeup(&sc->sc_intr_cv);
 	}

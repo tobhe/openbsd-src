@@ -298,9 +298,9 @@ attach	ssdfb at spi with ssdfb_spi
 attach	ssdfb at i2c with ssdfb_i2c
 file	dev/fdt/ssdfb.c			ssdfb
 
-device bmmc: sdmmcbus
-attach bmmc at fdt
-file	dev/fdt/bcm2835_mmc.c		bmmc
+device bsdhost: sdmmcbus
+attach bsdhost at fdt
+file	dev/fdt/bcm2835_sdhost.c		bsdhost
 
 device cprman
 attach cprman at fdt

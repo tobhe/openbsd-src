@@ -133,8 +133,8 @@ bcmrng*		at fdt?
 bcmtemp*	at fdt?
 dwctwo*		at fdt?
 usb*		at dwctwo?
-bmmc*       at fdt?
-sdmmc*      at bmmc?
+bsdhost*       at fdt?
+sdmmc*      at bsdhost?
 cprman*     at fdt? early 1
 bmbox*      at fdt? early 1
 bdmac*      at fdt? early 1
