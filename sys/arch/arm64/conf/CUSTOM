@@ -9,11 +9,3 @@ option	SDMMC_DEBUG
 option  VERBOSE_INIT_ARM
 
 cpu*		at mainbus?
-bdmac*	at fdt? early 1
-
-bmmc*	at fdt?
-sdmmc*		at bmmc?
-
-cprman* at fdt? early 1
-
-bmbox* at fdt? early 1
