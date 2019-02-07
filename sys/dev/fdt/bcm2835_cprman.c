@@ -81,28 +81,6 @@ enum {
 	CPRMAN_NCLOCK
 };
 
-struct vb_uart {
-	struct vcprop_buffer_hdr	vb_hdr;
-	struct vcprop_tag_clockrate	vbt_uartclockrate;
-	struct vcprop_tag_clockrate	vbt_vpuclockrate;
-	struct vcprop_tag end;
-} __aligned(16);
-
-struct vb {
-	struct vcprop_buffer_hdr	vb_hdr;
-	struct vcprop_tag_fwrev		vbt_fwrev;
-	struct vcprop_tag_boardmodel	vbt_boardmodel;
-	struct vcprop_tag_boardrev	vbt_boardrev;
-	struct vcprop_tag_macaddr	vbt_macaddr;
-	struct vcprop_tag_memory	vbt_memory;
-	struct vcprop_tag_boardserial	vbt_serial;
-	struct vcprop_tag_dmachan	vbt_dmachan;
-	struct vcprop_tag_cmdline	vbt_cmdline;
-	struct vcprop_tag_clockrate	vbt_emmcclockrate;
-	struct vcprop_tag_clockrate	vbt_armclockrate;
-	struct vcprop_tag_clockrate	vbt_vpuclockrate;
-	struct vcprop_tag end;
-} __aligned(16);
 
 struct cprman_softc {
 	struct device		sc_dev;
@@ -120,9 +98,6 @@ struct cfattach cprman_ca = {
 };
 
 u_int32_t cprman_get_frequency(void *, u_int32_t *);
-u_int32_t cprman_get_frequency_uart();
-u_int32_t cprman_get_frequency_vpu();
-u_int32_t cprman_get_frequency_emmc();
 
 /* We initialize the vb struct (that happens to contain cprman data in it)
  * lazily. cprman_init_vb will perform the initialization, but should only be
@@ -163,304 +138,91 @@ cprman_attach(struct device *parent, struct device *self, void *aux)
 u_int32_t
 cprman_get_frequency(void *cookie, u_int32_t *cells)
 {
-	switch (*cells) {
-	case CPRMAN_CLOCK_EMMC:
-		return cprman_get_frequency_emmc();
-	case CPRMAN_CLOCK_VPU:
-		return cprman_get_frequency_vpu();
-	case CPRMAN_CLOCK_UART:
-		return cprman_get_frequency_uart();
-	default:
-		panic("unsupported clock id %d\n", *cells);
-	}
-}
+	struct request {
+		struct vcprop_buffer_hdr	vb_hdr;
+		struct vcprop_tag_clockrate	vbt_clkrate;
+		struct vcprop_tag end;
+	} __attribute((aligned(16), packed));
 
-static struct vb_uart vb_uart = {
-	.vb_hdr = {
-		.vpb_len = sizeof(vb_uart),
-		.vpb_rcode = VCPROP_PROCESS_REQUEST,
-	},
-	.vbt_uartclockrate = {
-		.tag = {
-			.vpt_tag = VCPROPTAG_GET_CLOCKRATE,
-			.vpt_len = VCPROPTAG_LEN(vb_uart.vbt_uartclockrate),
-			.vpt_rcode = VCPROPTAG_REQUEST
-		},
-		.id = VCPROP_CLK_UART
-	},
-	.vbt_vpuclockrate = {
-		.tag = {
-			.vpt_tag = VCPROPTAG_GET_CLOCKRATE,
-			.vpt_len = VCPROPTAG_LEN(vb_uart.vbt_vpuclockrate),
-			.vpt_rcode = VCPROPTAG_REQUEST
-		},
-		.id = VCPROP_CLK_CORE
-	},
-	.end = {
-		.vpt_tag = VCPROPTAG_NULL
-	}
-};
-
-
-static struct vb vb = {
-	.vb_hdr = {
-		.vpb_len = sizeof(vb),
-		.vpb_rcode = VCPROP_PROCESS_REQUEST,
-	},
-	.vbt_fwrev = {
-		.tag = {
-			.vpt_tag = VCPROPTAG_GET_FIRMWAREREV,
-			.vpt_len = VCPROPTAG_LEN(vb.vbt_fwrev),
-			.vpt_rcode = VCPROPTAG_REQUEST
-		},
-	},
-	.vbt_boardmodel = {
-		.tag = {
-			.vpt_tag = VCPROPTAG_GET_BOARDMODEL,
-			.vpt_len = VCPROPTAG_LEN(vb.vbt_boardmodel),
-			.vpt_rcode = VCPROPTAG_REQUEST
-		},
-	},
-	.vbt_boardrev = {
-		.tag = {
-			.vpt_tag = VCPROPTAG_GET_BOARDREVISION,
-			.vpt_len = VCPROPTAG_LEN(vb.vbt_boardrev),
-			.vpt_rcode = VCPROPTAG_REQUEST
-		},
-	},
-	.vbt_macaddr = {
-		.tag = {
-			.vpt_tag = VCPROPTAG_GET_MACADDRESS,
-			.vpt_len = VCPROPTAG_LEN(vb.vbt_macaddr),
-			.vpt_rcode = VCPROPTAG_REQUEST
-		},
-	},
-	.vbt_memory = {
-		.tag = {
-			.vpt_tag = VCPROPTAG_GET_ARMMEMORY,
-			.vpt_len = VCPROPTAG_LEN(vb.vbt_memory),
-			.vpt_rcode = VCPROPTAG_REQUEST
-		},
-	},
-	.vbt_serial = {
-		.tag = {
-			.vpt_tag = VCPROPTAG_GET_BOARDSERIAL,
-			.vpt_len = VCPROPTAG_LEN(vb.vbt_serial),
-			.vpt_rcode = VCPROPTAG_REQUEST
-		},
-	},
-	.vbt_dmachan = {
-		.tag = {
-			.vpt_tag = VCPROPTAG_GET_DMACHAN,
-			.vpt_len = VCPROPTAG_LEN(vb.vbt_dmachan),
-			.vpt_rcode = VCPROPTAG_REQUEST
-		},
-	},
-	.vbt_cmdline = {
-		.tag = {
-			.vpt_tag = VCPROPTAG_GET_CMDLINE,
-			.vpt_len = VCPROPTAG_LEN(vb.vbt_cmdline),
-			.vpt_rcode = VCPROPTAG_REQUEST
-		},
-	},
-	.vbt_emmcclockrate = {
-		.tag = {
-			.vpt_tag = VCPROPTAG_GET_CLOCKRATE,
-			.vpt_len = VCPROPTAG_LEN(vb.vbt_emmcclockrate),
-			.vpt_rcode = VCPROPTAG_REQUEST
-		},
-		.id = VCPROP_CLK_EMMC
-	},
-	.vbt_armclockrate = {
-		.tag = {
-			.vpt_tag = VCPROPTAG_GET_CLOCKRATE,
-			.vpt_len = VCPROPTAG_LEN(vb.vbt_armclockrate),
-			.vpt_rcode = VCPROPTAG_REQUEST
-		},
-		.id = VCPROP_CLK_ARM
-	},
-	.vbt_vpuclockrate = {
-		.tag = {
-			.vpt_tag = VCPROPTAG_GET_CLOCKRATE,
-			.vpt_len = VCPROPTAG_LEN(vb.vbt_vpuclockrate),
-			.vpt_rcode = VCPROPTAG_REQUEST
-		},
-		.id = VCPROP_CLK_CORE
-	},
-	.end = {
-		.vpt_tag = VCPROPTAG_NULL
-	}
-};
-
-u_int32_t
-cprman_get_frequency_uart()
-{
-	return 0; /* XXX */
-}
-
-u_int32_t
-cprman_get_frequency_vpu()
-{
-	printf("<%x:%d>", vb.vbt_vpuclockrate.tag.vpt_rcode, vb.vbt_vpuclockrate.rate);
-	cprman_init_vb_wrapper();
-	if (vcprop_tag_success_p(&vb.vbt_vpuclockrate.tag))
-		return vb.vbt_vpuclockrate.rate;
-	printf("<%x:%d>", vb.vbt_vpuclockrate.tag.vpt_rcode, vb.vbt_vpuclockrate.rate);
-	return 0;
-}
-
-u_int32_t
-cprman_get_frequency_emmc()
-{
-	return 0;
-}
-
-void
-cprman_init_vb_wrapper(void)
-{
-	/* 0 at first, 1 during initialization, 2 when done */
-	static volatile unsigned int done = 0;
-
-	switch (atomic_cas_uint(&done, 0, 1)) {
-	case 0:
-		/* value is currently uninitialized, we need to set it up */
-		break;
-	case 1:
-		/* someone else is doing it, wait for them to finish */
-		while (2 != atomic_cas_uint(&done, 2, 2))
-			tsleep(&done, PPAUSE, "pause", 0);
-		/* they're done now */
-		return;
-	case 2:
-		/* its already been done */
-		return;
-	default:
-		panic("cprman invariant violation");
-	}
-
-	/* actually initialize the thing here */
-	cprman_init_vb();
-
-	/* alert the people in case 1 from before */
-	KASSERT(atomic_cas_uint(&done, 1, 2) == 1);
-	wakeup(&done);
-
-}
-
-struct {
-	int dramblocks;
-	struct {
-		int address;
-		int pages;
-	} dram[2];
-} bootconfig;
-
-void
-cprman_init_vb(void)
-{
-	int res = 6969;
-	unsigned long bcm283x_memorysize;
-	pmap_t map;
 	vaddr_t virtual;
-	paddr_t physical = 0;
+	paddr_t physical;
+	u_int32_t result;
+	pmap_t map;
+	struct request req = {
+		.vb_hdr = {
+			.vpb_len = sizeof(req),
+			.vpb_rcode = VCPROP_PROCESS_REQUEST,
+		},
+		.vbt_clkrate = {
+			.tag = {
+				.vpt_tag = VCPROPTAG_GET_CLOCKRATE,
+				.vpt_len = VCPROPTAG_LEN(req.vbt_clkrate),
+				.vpt_rcode = VCPROPTAG_REQUEST
+			},
+		},
+		.end = {
+			.vpt_tag = VCPROPTAG_NULL
+		}
+	};
+
+	switch (cells[0]) {
+	case CPRMAN_CLOCK_TIMER:
+		break;
+	case CPRMAN_CLOCK_UART:
+		req.vbt_clkrate.id = VCPROP_CLK_UART;
+		break;
+	case CPRMAN_CLOCK_VPU:
+		req.vbt_clkrate.id = VCPROP_CLK_CORE;
+		break;
+	case CPRMAN_CLOCK_V3D:
+		req.vbt_clkrate.id = VCPROP_CLK_V3D;
+		break;
+	case CPRMAN_CLOCK_ISP:
+		req.vbt_clkrate.id = VCPROP_CLK_ISP;
+		break;
+	case CPRMAN_CLOCK_H264:
+		req.vbt_clkrate.id = VCPROP_CLK_H264;
+		break;
+	case CPRMAN_CLOCK_VEC:
+		break;
+	case CPRMAN_CLOCK_HSM:
+		break;
+	case CPRMAN_CLOCK_SDRAM:
+		req.vbt_clkrate.id = VCPROP_CLK_SDRAM;
+		break;
+	case CPRMAN_CLOCK_TSENS:
+		break;
+	case CPRMAN_CLOCK_EMMC:
+		req.vbt_clkrate.id = VCPROP_CLK_EMMC;
+		break;
+	case CPRMAN_CLOCK_PERIIMAGE:
+		break;
+	case CPRMAN_CLOCK_PWM:
+		req.vbt_clkrate.id = VCPROP_CLK_PWM;
+		break;
+	case CPRMAN_CLOCK_PCM:
+		break;
+	}
+
+	if (req.vbt_clkrate.id == 0) {
+		printf("cprman[unknown]: request to unknown clock type %d\n", cells[0]);
+		return 0;
+	}
 
 	map = pmap_kernel();
-	virtual = (vaddr_t)&vb_uart;
-	pmap_extract(map, virtual, &physical);
-
-	bmbox_write(BCMMBOX_CHANARM2VC,
-	physical);
-
-	bmbox_read(BCMMBOX_CHANARM2VC, &res);
-	printf("<vbuart:%d>", res);
-
-
-	bmbox_write(BCMMBOX_CHANPM, (
-#if (NSDHC > 0)
-	    (1 << VCPM_POWER_SDCARD) |
-#endif
-#if (NPLCOM > 0)
-	    (1 << VCPM_POWER_UART0) |
-#endif
-#if (NBCMDWCTWO > 0)
-	    (1 << VCPM_POWER_USB) |
-#endif
-#if (NBSCIIC > 0)
-	    (1 << VCPM_POWER_I2C0) | (1 << VCPM_POWER_I2C1) |
-	/*  (1 << VCPM_POWER_I2C2) | */
-#endif
-#if (NBCMSPI > 0)
-	    (1 << VCPM_POWER_SPI) |
-#endif
-	    0) << 4);
-
-	virtual = (vaddr_t)&vb;
-	physical = 0;
-
+	virtual = (vaddr_t)&req;
 	pmap_extract(map, virtual, &physical);
 
 	bmbox_write(BCMMBOX_CHANARM2VC, physical);
-	bmbox_read(BCMMBOX_CHANARM2VC, &res);
-	printf("<vb:%d>", res);
+	bmbox_read(BCMMBOX_CHANARM2VC, &result);
 
-	if (!vcprop_buffer_success_p(&vb.vb_hdr)) {
-		bootconfig.dramblocks = 1;
-		bootconfig.dram[0].address = 0x0;
-		bootconfig.dram[0].pages = atop(128U * 1024 * 1024);
-		return;
-	}
+	printf("cprman[unknown]: input = %lx, output = %x\n", physical, result);
 
-	struct vcprop_tag_memory *vptp_mem = &vb.vbt_memory;
-	if (vcprop_tag_success_p(&vptp_mem->tag)) {
-		size_t n = vcprop_tag_resplen(&vptp_mem->tag) /
-		    sizeof(struct vcprop_memory);
+	if (vcprop_tag_success_p(&req.vbt_clkrate.tag))
+		return req.vbt_clkrate.rate;
 
-		bcm283x_memorysize = 0;
-		bootconfig.dramblocks = 0;
+	printf("cprman[unknown]: vcprop result %x:%x\n", req.vb_hdr.vpb_rcode, req.vbt_clkrate.tag.vpt_rcode);
 
-		for (int i = 0; i < n && i < 2; i++) {
-			bootconfig.dram[i].address = vptp_mem->mem[i].base;
-			bootconfig.dram[i].pages = atop(vptp_mem->mem[i].size);
-			bootconfig.dramblocks++;
-
-			bcm283x_memorysize += vptp_mem->mem[i].size;
-		}
-	}
-
-#if 0
-	if (vcprop_tag_success_p(&vb.vbt_armclockrate.tag))
-		curcpu()->ci_data.cpu_cc_freq = vb.vbt_armclockrate.rate;
-#endif
-
-#ifdef VERBOSE_INIT_ARM
-	if (vcprop_tag_success_p(&vb.vbt_memory.tag))
-		printf("%s: memory size  %zu\n", __func__,
-		    bcm283x_memorysize);
-	if (vcprop_tag_success_p(&vb.vbt_armclockrate.tag))
-		printf("%s: arm clock    %d\n", __func__,
-		    vb.vbt_armclockrate.rate);
-	if (vcprop_tag_success_p(&vb.vbt_fwrev.tag))
-		printf("%s: firmware rev %x\n", __func__,
-		    vb.vbt_fwrev.rev);
-	if (vcprop_tag_success_p(&vb.vbt_boardmodel.tag))
-		printf("%s: board model  %x\n", __func__,
-		    vb.vbt_boardmodel.model);
-	if (vcprop_tag_success_p(&vb.vbt_macaddr.tag))
-		printf("%s: mac-address  %llx \n", __func__,
-		    vb.vbt_macaddr.addr);
-	if (vcprop_tag_success_p(&vb.vbt_boardrev.tag))
-		printf("%s: board rev    %x\n", __func__,
-		    vb.vbt_boardrev.rev);
-	if (vcprop_tag_success_p(&vb.vbt_serial.tag))
-		printf("%s: board serial %llx\n", __func__,
-		    vb.vbt_serial.sn);
-	if (vcprop_tag_success_p(&vb.vbt_dmachan.tag))
-		printf("%s: DMA channel mask 0x%08x\n", __func__,
-		    vb.vbt_dmachan.mask);
-
-	if (vcprop_tag_success_p(&vb.vbt_cmdline.tag))
-		printf("%s: cmdline      %s\n", __func__,
-		    vb.vbt_cmdline.cmdline);
-#endif
-
+	return 0;
 }
+

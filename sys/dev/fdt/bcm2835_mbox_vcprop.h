@@ -125,7 +125,7 @@ struct vcprop_tag {
 #define	VCPROPTAG_REQUEST	(0U << 31)
 #define	VCPROPTAG_RESPONSE	(1U << 31)
 
-};
+} __packed;
 
 #define VCPROPTAG_LEN(x) (sizeof((x)) - sizeof(struct vcprop_tag))
 
@@ -233,7 +233,7 @@ struct vcprop_tag_clockrate {
 	uint32_t id;
 	uint32_t rate;
 	uint32_t noturbo;
-};
+} __packed;
 
 #define VCPROP_VOLTAGE_CORE	1
 #define VCPROP_VOLTAGE_SDRAM_C	2
@@ -379,7 +379,7 @@ struct vcprop_buffer_hdr {
 #define	VCPROP_PROCESS_REQUEST 0
 #define VCPROP_REQ_SUCCESS	(1U << 31)
 #define VCPROP_REQ_EPARSE	(1U << 0)
-};
+} __packed;
 
 static inline bool
 vcprop_buffer_success_p(struct vcprop_buffer_hdr *vpbh)
