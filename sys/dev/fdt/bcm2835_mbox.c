@@ -1,5 +1,27 @@
 /*     $OpenBSD: mmc.c,v 1.0 2019/01/13 23:55:29 neil Exp $ */
 
+/* Code based on
+ *	$NetBSD: bcm2835_mbox_subr.c,v 1.5 2017/12/10 21:38:26 skrll Exp $
+ *	$NetBSD: bcm2835_mbox.c,v 1.13 2018/08/19 09:18:48 rin Exp $
+ */
+
+/*
+ * Copyright (c) 2019 Neil Ashford <ashfordneil0@gmail.com>
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+
 /*-
  * Copyright (c) 2012 The NetBSD Foundation, Inc.
  * All rights reserved.

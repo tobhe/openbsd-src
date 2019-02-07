@@ -1,5 +1,9 @@
 /*	$OpenBSD: bcm2835_cprman.c,v 1.0 2019/02/05 10:52:30 Neil Ashford $	*/
 
+/* Code based on
+ * $NetBSD: bcm2835_cprman.c,v 1.2 2018/09/09 07:21:17 aymeric Exp $
+ */
+
 /*
  * Copyright (c) 2019 Neil Ashford <ashfordneil0@gmail.com>
  *
