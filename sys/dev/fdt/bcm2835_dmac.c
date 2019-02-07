@@ -115,6 +115,8 @@ bdmac_attach(struct device *parent, struct device *self, void *aux)
 	struct bdmac_channel *ch;
 	u_int32_t val;
 	int index;
+	bus_addr_t addr;
+	bus_size_t size;
 
 	if (atomic_cas_ptr(&attached_sc, NULL, sc)) {
 		printf(": a similar device has already attached\n");
@@ -123,9 +125,6 @@ bdmac_attach(struct device *parent, struct device *self, void *aux)
 
 	sc->sc_iot = faa->fa_iot;
 	sc->sc_fa_node = faa->fa_node;
-
-	bus_addr_t addr;
-	bus_size_t size;
 
 	if (faa->fa_nreg < 1) {
 		printf(": no registers\n");

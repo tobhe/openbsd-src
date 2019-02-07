@@ -302,6 +302,14 @@ device bmmc: sdmmcbus
 attach bmmc at fdt
 file	dev/fdt/bcm2835_mmc.c		bmmc
 
+device cprman
+attach cprman at fdt
+file	dev/fdt/bcm2835_cprman.c	cprman
+
 device bdmac
 attach bdmac at fdt
 file	dev/fdt/bcm2835_dmac.c		bdmac
+
+device bmbox
+attach bmbox at fdt
+file	dev/fdt/bcm2835_mbox.c		bmbox

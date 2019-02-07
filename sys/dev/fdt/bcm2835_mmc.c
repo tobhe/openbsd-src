@@ -212,7 +212,7 @@ bmmc_attach(struct device *parent, struct device *self, void *aux)
 
 	/* enable clocks */
 	clock_enable_all(faa->fa_node);
-	sc->sc_rate = 19200000;/*clock_get_frequency_idx(faa->fa_node, 0);*/
+	sc->sc_rate = clock_get_frequency_idx(faa->fa_node, 0);
 
 	/* load DMA */
 	sc->sc_dmac = bdmac_alloc(BDMAC_TYPE_NORMAL, IPL_SDMMC,
@@ -398,9 +398,7 @@ bmmc_bus_clock(sdmmc_chipset_handle_t sch, int freq, int ddr)
 			div = SDCDIV_MASK;
 	}
 
-#if 1
 	sc->sc_div = div;
-#endif
 	bmmc_write(sc, SDCDIV, sc->sc_div);
 
 	return 0;
