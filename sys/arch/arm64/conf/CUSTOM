@@ -6,6 +6,7 @@ option	MULTIPROCESSOR
 option	SDMMC_DEBUG
 #option	MP_LOCKDEBUG
 #option	WITNESS
+option  VERBOSE_INIT_ARM
 
 cpu*		at mainbus?
 bdmac*	at fdt? early 1

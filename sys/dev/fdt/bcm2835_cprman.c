@@ -47,6 +47,7 @@
 #include <sys/device.h>
 #include <sys/systm.h>
 
+#include <machine/bootconfig.h>
 #include <machine/fdt.h>
 
 #include <dev/ofw/openfirm.h>
@@ -75,6 +76,13 @@ enum {
 	CPRMAN_CLOCK_PCM = 31,
 	CPRMAN_NCLOCK
 };
+
+struct vb_uart {
+	struct vcprop_buffer_hdr	vb_hdr;
+	struct vcprop_tag_clockrate	vbt_uartclockrate;
+	struct vcprop_tag_clockrate	vbt_vpuclockrate;
+	struct vcprop_tag end;
+} __aligned(16);
 
 struct vb {
 	struct vcprop_buffer_hdr	vb_hdr;
@@ -162,6 +170,33 @@ cprman_get_frequency(void *cookie, u_int32_t *cells)
 		panic("unsupported clock id %d\n", *cells);
 	}
 }
+
+static struct vb_uart vb_uart = {
+	.vb_hdr = {
+		.vpb_len = sizeof(vb_uart),
+		.vpb_rcode = VCPROP_PROCESS_REQUEST,
+	},
+	.vbt_uartclockrate = {
+		.tag = {
+			.vpt_tag = VCPROPTAG_GET_CLOCKRATE,
+			.vpt_len = VCPROPTAG_LEN(vb_uart.vbt_uartclockrate),
+			.vpt_rcode = VCPROPTAG_REQUEST
+		},
+		.id = VCPROP_CLK_UART
+	},
+	.vbt_vpuclockrate = {
+		.tag = {
+			.vpt_tag = VCPROPTAG_GET_CLOCKRATE,
+			.vpt_len = VCPROPTAG_LEN(vb_uart.vbt_vpuclockrate),
+			.vpt_rcode = VCPROPTAG_REQUEST
+		},
+		.id = VCPROP_CLK_CORE
+	},
+	.end = {
+		.vpt_tag = VCPROPTAG_NULL
+	}
+};
+
 
 static struct vb vb = {
 	.vb_hdr = {
@@ -308,9 +343,34 @@ cprman_init_vb_wrapper(void)
 
 }
 
+struct {
+	int dramblocks;
+	struct {
+		int address;
+		int pages;
+	} dram[2];
+} bootconfig;
+
 void
 cprman_init_vb(void)
 {
+	int res = 6969;
+	unsigned long bcm283x_memorysize;
+	pmap_t map;
+	vaddr_t virtual;
+	paddr_t physical = 0;
+
+	map = pmap_kernel();
+	virtual = (vaddr_t)&vb_uart;
+	pmap_extract(map, virtual, &physical);
+
+	bmbox_write(BCMMBOX_CHANARM2VC,
+	physical);
+
+	bmbox_read(BCMMBOX_CHANARM2VC, &res);
+	printf("<vbuart:%d>", res);
+
+
 	bmbox_write(BCMMBOX_CHANPM, (
 #if (NSDHC > 0)
 	    (1 << VCPM_POWER_SDCARD) |
@@ -330,11 +390,73 @@ cprman_init_vb(void)
 #endif
 	    0) << 4);
 
-	pmap_t map = pmap_kernel();
-	vaddr_t virtual = (vaddr_t)&vb;
-	paddr_t physical = 0;
+	virtual = (vaddr_t)&vb;
+	physical = 0;
 
 	pmap_extract(map, virtual, &physical);
 
 	bmbox_write(BCMMBOX_CHANARM2VC, physical);
+	bmbox_read(BCMMBOX_CHANARM2VC, &res);
+	printf("<vb:%d>", res);
+
+	if (!vcprop_buffer_success_p(&vb.vb_hdr)) {
+		bootconfig.dramblocks = 1;
+		bootconfig.dram[0].address = 0x0;
+		bootconfig.dram[0].pages = atop(128U * 1024 * 1024);
+		return;
+	}
+
+	struct vcprop_tag_memory *vptp_mem = &vb.vbt_memory;
+	if (vcprop_tag_success_p(&vptp_mem->tag)) {
+		size_t n = vcprop_tag_resplen(&vptp_mem->tag) /
+		    sizeof(struct vcprop_memory);
+
+		bcm283x_memorysize = 0;
+		bootconfig.dramblocks = 0;
+
+		for (int i = 0; i < n && i < 2; i++) {
+			bootconfig.dram[i].address = vptp_mem->mem[i].base;
+			bootconfig.dram[i].pages = atop(vptp_mem->mem[i].size);
+			bootconfig.dramblocks++;
+
+			bcm283x_memorysize += vptp_mem->mem[i].size;
+		}
+	}
+
+#if 0
+	if (vcprop_tag_success_p(&vb.vbt_armclockrate.tag))
+		curcpu()->ci_data.cpu_cc_freq = vb.vbt_armclockrate.rate;
+#endif
+
+#ifdef VERBOSE_INIT_ARM
+	if (vcprop_tag_success_p(&vb.vbt_memory.tag))
+		printf("%s: memory size  %zu\n", __func__,
+		    bcm283x_memorysize);
+	if (vcprop_tag_success_p(&vb.vbt_armclockrate.tag))
+		printf("%s: arm clock    %d\n", __func__,
+		    vb.vbt_armclockrate.rate);
+	if (vcprop_tag_success_p(&vb.vbt_fwrev.tag))
+		printf("%s: firmware rev %x\n", __func__,
+		    vb.vbt_fwrev.rev);
+	if (vcprop_tag_success_p(&vb.vbt_boardmodel.tag))
+		printf("%s: board model  %x\n", __func__,
+		    vb.vbt_boardmodel.model);
+	if (vcprop_tag_success_p(&vb.vbt_macaddr.tag))
+		printf("%s: mac-address  %llx \n", __func__,
+		    vb.vbt_macaddr.addr);
+	if (vcprop_tag_success_p(&vb.vbt_boardrev.tag))
+		printf("%s: board rev    %x\n", __func__,
+		    vb.vbt_boardrev.rev);
+	if (vcprop_tag_success_p(&vb.vbt_serial.tag))
+		printf("%s: board serial %llx\n", __func__,
+		    vb.vbt_serial.sn);
+	if (vcprop_tag_success_p(&vb.vbt_dmachan.tag))
+		printf("%s: DMA channel mask 0x%08x\n", __func__,
+		    vb.vbt_dmachan.mask);
+
+	if (vcprop_tag_success_p(&vb.vbt_cmdline.tag))
+		printf("%s: cmdline      %s\n", __func__,
+		    vb.vbt_cmdline.cmdline);
+#endif
+
 }
