@@ -144,10 +144,7 @@ cprman_get_frequency(void *cookie, u_int32_t *cells)
 		struct vcprop_tag end;
 	} __attribute((aligned(16), packed));
 
-	vaddr_t virtual;
-	paddr_t physical;
 	u_int32_t result;
-	pmap_t map;
 	struct request req = {
 		.vb_hdr = {
 			.vpb_len = sizeof(req),
@@ -209,14 +206,7 @@ cprman_get_frequency(void *cookie, u_int32_t *cells)
 		return 0;
 	}
 
-	map = pmap_kernel();
-	virtual = (vaddr_t)&req;
-	pmap_extract(map, virtual, &physical);
-
-	bmbox_write(BCMMBOX_CHANARM2VC, physical);
-	bmbox_read(BCMMBOX_CHANARM2VC, &result);
-
-	printf("cprman[unknown]: input = %lx, output = %x\n", physical, result);
+	bmbox_post(BCMMBOX_CHANARM2VC, &req, sizeof(req), &result);
 
 	if (vcprop_tag_success_p(&req.vbt_clkrate.tag))
 		return req.vbt_clkrate.rate;
