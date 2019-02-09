@@ -98,4 +98,6 @@
 void bmbox_read(u_int8_t chan, u_int32_t *data);
 void bmbox_write(u_int8_t chan, u_int32_t data);
 
+int bmbox_post(u_int8_t, void *, size_t, u_int32_t *);
+
 #endif /* BCM2835_DMAC_H */

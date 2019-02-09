@@ -63,7 +63,8 @@
 #include <dev/ofw/fdt.h>
 #include <dev/ofw/openfirm.h>
 
-#include "bcm2835_mbox.h"
+#include <dev/fdt/bcm2835_mbox.h>
+#include <dev/fdt/bcm2835_mbox_vcprop.h>
 
 #define DEVNAME(sc)   			((sc)->sc_dev.dv_xname)
 
@@ -84,7 +85,7 @@ struct bmbox_softc {
 	u_int32_t		sc_mbox[BMBOX_NUM_CHANNELS];
 };
 
-static volatile void *attached_sc = NULL;
+static void * volatile attached_sc = NULL;
 
 int bmbox_match(struct device *, void *, void *);
 void bmbox_attach(struct device *, struct device *, void *);
@@ -125,8 +126,6 @@ bmbox_attach(struct device *parent, struct device *self, void *aux)
 	mtx_init(&sc->sc_lock, IPL_NONE);
 	mtx_init(&sc->sc_intr_lock, IPL_VM);
 
-	sc->sc_iot = faa->fa_iot;
-
 	if (faa->fa_nreg < 1) {
 		printf(": no registers\n");
 		return;
@@ -134,9 +133,18 @@ bmbox_attach(struct device *parent, struct device *self, void *aux)
 
 	addr = faa->fa_reg[0].addr;
 	size = faa->fa_reg[0].size;
+
+	sc->sc_dmat = faa->fa_dmat;
+	sc->sc_iot = faa->fa_iot;
 	if (bus_space_map(sc->sc_iot, addr, size, 0, &sc->sc_ioh)) {
 		printf(": can't map registers\n");
 		return;
+	}
+
+	if (bus_dmamap_create(sc->sc_dmat, ~0UL, 1, ~0UL, 0,
+	    BUS_DMA_NOWAIT|BUS_DMA_ALLOCNOW, &sc->sc_dmamap) != 0) {
+		printf(": unable to create dma map\n");
+		goto clean_bus_space_map;
 	}
 
 	sc->sc_ih = fdt_intr_establish(faa->fa_node, IPL_VM, bmbox_intr, sc,
@@ -150,6 +158,16 @@ bmbox_attach(struct device *parent, struct device *self, void *aux)
 	bmbox_reg_write(sc, BMBOX_CFG, BMBOX_CFG_DATA_IRQ_EN);
 
 	printf("\n");
+
+	bmbox_write(BCMMBOX_CHANPM, (
+            (1 << VCPROP_POWER_SDCARD) |
+            (1 << VCPROP_POWER_UART0) |
+            (1 << VCPROP_POWER_USB) |
+            (1 << VCPROP_POWER_I2C0) | (1 << VCPROP_POWER_I2C1) |
+        /*  (1 << VCPROP_POWER_I2C2) | */
+            (1 << VCPROP_POWER_SPI) |
+            0) << 4);
+
 	return;
 
 	/*
@@ -250,6 +268,37 @@ bmbox_read(u_int8_t chan, u_int32_t *data)
 			return;
 		}
 	}
+}
+
+int
+bmbox_post(u_int8_t chan, void *buf, size_t len, u_int32_t *res)
+{
+	struct bmbox_softc *sc = attached_sc;
+	bus_dmamap_t dmap;
+	int error;
+
+	if (sc == NULL)
+		return (ENXIO);
+
+	dmap = sc->sc_dmamap;
+
+	error = bus_dmamap_load(sc->sc_dmat, dmap, buf, len, NULL,
+	    BUS_DMA_NOWAIT | BUS_DMA_READ | BUS_DMA_WRITE);
+	if (error != 0)
+		return (error);
+
+	bus_dmamap_sync(sc->sc_dmat, dmap, 0, len,
+	    BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
+
+	bmbox_write(chan, dmap->dm_segs[0].ds_addr);
+	bmbox_read(chan, res);
+
+	bus_dmamap_sync(sc->sc_dmat, dmap, 0, len,
+	    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
+
+	bus_dmamap_unload(sc->sc_dmat, dmap);
+
+	return (0);
 }
 
 void
