@@ -1,0 +1,69 @@
+.\"
+.\" Copyright (c) 2019 Tobias Heider <tobias.heider@stusta.de>
+.\"
+.\" Permission to use, copy, modify, and distribute this software for any
+.\" purpose with or without fee is hereby granted, provided that the above
+.\" copyright notice and this permission notice appear in all copies.
+.\"
+.\" THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+.\" WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+.\" MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+.\" ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+.\" WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+.\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+.\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+.\"
+.Dd $Mdocdate: May 19 2019 $
+.Dt D 5
+.Os
+.Sh NAME
+.Nm D
+.Nd Configuration language for dynamic kernel tracing
+.Sh DESCRIPTION
+The
+.Nm
+scripting language allows configuration of probes and what is being
+traced and logged in the kernel.
+
+.Sh PROBE SYNTAX
+.Bl -tag -width xxxx
+.It Sy Profile
+Run the script periodically on every cpu with the specified interval.
+.Pp
+.Bl -tag -width "for_ufqdn_identitiesXX" -offset 3n -compact
+.It profile:hz:99 { ... }
+.It profile:s:1 { ... }
+.It profile:ms:20 { ... }
+.El
+.It Sy Interval
+Run the script once every specified interval.
+.Pp
+.Bl -tag -width "for_ufqdn_identitiesXX" -offset 3n -compact
+.It interval:hz:99 { ... }
+.It interval:s:1 { ... }
+.El
+.It Sy Predicates
+Provide conditions to exectue the probe. Valid VARIABLES are UID and GID.
+.Pp
+.Bl -tag -width "for_ufqdn_identitiesXX" -offset 3n -compact
+.It profile:s:1 / gid == 0 / { ... }
+.El
+.It Sy Variables
+.Bl -tag -width XXX
+.It Sy pid
+Process ID
+.It Sy uid
+User ID
+.It Sy gid
+Group ID
+.El
+.It Sy Functions
+.Bl -tag -width XXXX
+.It Sy count()
+Increase a counter every time the function is called
+.It Sy trace()
+Print variable
+.El
+.El
+.Sh SEE ALSO
+.Xr dt 8
