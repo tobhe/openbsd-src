@@ -27,44 +27,44 @@
 
 #include "dlang.h"
 
+static void	 print_probes();
+static void	 cleanup_probes();
+
+static void	 yyerror(const char *, ...);
+static int	 yylex(void);
+
 const char	*pbuf;
 size_t		 plen;
 size_t		 pindex;
+
+struct probe	**probes;
+int		  nprobes;
+static int	  maxprobes;
+
+int		  parse_errors = 0;
 
 struct probe {
 	const char	*provider;
 	const char	*module;
 	const char	*function;
-	int		 action;
+	const char	*action;
 };
-
-struct probe **probes;
-int nprobes;
-static int maxprobes;
-
-static void print_probes();
-static void cleanup_probes();
 
 typedef struct {
 	union {
 		struct {
-			const char *provider;
-			const char *module;
-			const char *function;
+			const char	*provider;
+			const char	*module;
+			const char	*function;
 		};
-		int64_t number;
-		uint8_t timeunit;
-		const char *string;
+		int64_t		 number;
+		uint8_t		 timeunit;
+		const char	*string;
 	};
-	int lineno;
-	int colno;
+	int	lineno;
+	int	colno;
 } yystype;
 #define YYSTYPE yystype
-
-int parse_errors = 0;
-
-static void yyerror(const char *, ...);
-static int yylex(void);
 
 %}
 
@@ -85,6 +85,7 @@ rule		: /* empty */
 			p->provider = $1.provider;
 			p->module= $1.module;
 			p->function = $1.function;
+			p->action = $3.string;
 			if (nprobes == maxprobes) {
 				if (maxprobes == 0)
 					maxprobes = 63;
@@ -132,8 +133,8 @@ instruction	: '{' STRING ';' '}' { $$.string = $2.string; }
 %%
 
 static struct keyword {
-	const char *word;
-	int token;
+	const char	*word;
+	int		 token;
 } keywords[] = {
 	{ "pid",	PID},
 	{ "uuid",	UUID},
@@ -141,14 +142,17 @@ static struct keyword {
 	{ "!=",		NOT_EQUALS}
 };
 
+
 int
-print_probe(uint8_t time, int64_t val) {
+print_probe(uint8_t time, int64_t val)
+{
 	printf("Unit: %"PRIu8", Val: %"PRIi64"\n", time, val);
 	return 0;
 }
 
 int
-lgetc(void) {
+lgetc(void)
+{
 	if (pbuf != NULL) {
 		if(pindex < plen)
 			return pbuf[pindex++];
@@ -157,17 +161,21 @@ lgetc(void) {
 }
 
 void
-lungetc(void) {
+lungetc(void)
+{
 	if (pbuf != NULL && pindex > 0) {
 		pindex--;
 	}
 }
 
 int
-yylex(void) {
-	unsigned char buf[1024], *ebuf, *p, *str;
-	int i, c, qpos = -1, nonkw = 0, number = 0;
-	const char *errstr = NULL;
+yylex(void)
+{
+	unsigned char	*ebuf, *p, *str;
+	unsigned char	 buf[1024];
+	int		 i, c;
+	int		 qpos = -1;
+	int		 nonkw = 0;
 
 	p = buf;
 	ebuf = buf + sizeof(buf);
@@ -178,10 +186,6 @@ repeat:
 		yylval.colno++;
 
 	switch (c) {
-	// case '\n':
-	// 	yylval.colno = 0;
-	// 	yylval.lineno++;
-	// 	/* FALLTHROUGH */
 	case '{':
 	case '}':
 	case ':':
@@ -237,18 +241,6 @@ eow:
 		}
 	}
 
-	/* handle number */
-	if (number) {
-		yylval.number = strtonum(buf, LLONG_MIN,
-		    LLONG_MAX, &errstr);
-		if (errstr) {
-			yyerror("\"%s\" invalid number: %s",
-			    buf, errstr);
-			goto eof;
-		}
-		return NUMBER;
-	}
-
 	/* handle strings */
 	if ((str = strdup(buf)) == NULL)
 		err(1, "%s", __func__);
@@ -262,7 +254,7 @@ eof:
 void
 yyerror(const char *fmt, ...)
 {
-	va_list va;
+	va_list	va;
 
 	fprintf(stderr, "dlang: ");
 	va_start(va, fmt);
@@ -273,9 +265,9 @@ yyerror(const char *fmt, ...)
 }
 
 int
-parse_script(const char *str, size_t len, int debug) {
-
-	int ret;
+parse_script(const char *str, size_t len, int debug)
+{
+	int	ret;
 
 	if (debug > 1)
 		yydebug = 1;
@@ -294,24 +286,27 @@ parse_script(const char *str, size_t len, int debug) {
 	return ret;
 }
 
-static void print_probes() {
+static void
+print_probes()
+{
+	struct probe	*p;
+	int		 i;
 
-	int i;
-	struct probe *p;
-
-	printf("%8s\t%8s\t%8s\t\t%8s\n", "Provider", "Module", "Function",
-	    "Action");
+	printf("%8s\t%8s\t%8s\t\t%8s\n", "Provider", "Module", "Function", "Action");
+	printf("================================================================\n");
 	for (i = 0; i < nprobes; i++) {
 		p = probes[i];
-		printf("%8s\t%8s\t%8s\t\t%8d\n", p->provider, p->module,
+		printf("%8s\t%8s\t%8s\t\t%8s\n", p->provider, p->module,
 		    p->function, p->action);
 	}
+	printf("\n");
 }
 
-static void cleanup_probes() {
-
-	int i;
-	struct probe *p;
+static void
+cleanup_probes()
+{
+	struct probe	*p;
+	int		 i;
 
 	if (probes == NULL) {
 		return;

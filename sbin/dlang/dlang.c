@@ -34,8 +34,8 @@ usage(void) {
 int
 main(int argc, char *argv[]) {
 
-	int ch, dflag = 0;
-	const char *script = NULL;
+	int		ch, dflag = 0;
+	const char	*script = NULL;
 
 	while ((ch = getopt(argc, argv, "de:l")) != -1) {
 		switch (ch){
