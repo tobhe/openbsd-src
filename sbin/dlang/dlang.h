@@ -16,19 +16,20 @@
 
 #include <string.h>
 
-struct dlang_req {
-	unsigned int	 pid	: 1;	/* Process ID*/
-	unsigned int	 tid	: 1;	/* Thread ID */
-	unsigned int	 uid	: 1;	/* User ID */
-	unsigned int	 gid	: 1;	/* Group ID */
-	unsigned int	 nsec	: 1;	/* Nanoseconds timestamp */
-	unsigned int	 cpu	: 1;	/* Processor ID */
-	unsigned int	 comm	: 1;	/* Process name */
-	unsigned int	 kstack	: 1;	/* Kernel stack trace */
-	unsigned int	 ustack	: 1;	/* User stack trace */
-	unsigned int	 args	: 1;	/* Function arguments */
-	unsigned int	 func	: 1;	/* Function name */
-};
+/*
+ * Flags to request variables from kernel
+ */
+#define DT_REQUEST_PID		  (0x1)
+#define DT_REQUEST_TID		  (0x2)
+#define DT_REQUEST_UID		  (0x4)
+#define DT_REQUEST_GID		  (0x8)
+#define DT_REQUEST_NSEC		 (0x10)
+#define DT_REQUEST_CPU		 (0x20)
+#define DT_REQUEST_COMM		 (0x40)
+#define DT_REQUEST_KSTACK	 (0x80)
+#define DT_REQUEST_USTACK	(0x100)
+#define DT_REQUEST_ARGS		(0x200)
+#define DT_REQUEST_FUNC		(0x400)
 
 struct dlang_res {
 	int	  pid;		/* Process ID*/

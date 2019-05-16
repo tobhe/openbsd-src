@@ -1,3 +1,4 @@
+/*	$OpenBSD$	*/
 /*
  * Copyright (c) 2019 Tobias Heider <tobias.heider@stusta.de>
  *
@@ -23,6 +24,28 @@
 
 __dead void usage(void);
 
+static void print_probes(void);
+
+/* XXX: Get list from kernel */
+struct probe_el {
+	size_t		 id;
+	const char	*provider;
+	const char	*module;
+	const char	*function;
+	const char	*name;
+} probes_list[] = {
+	{ 0, "dt", "profile", "s", "" },
+	{ 1, "dt", "profile", "ms", "" },
+	{ 2, "dt", "profile", "us", "" },
+	{ 3, "dt", "profile", "us", "" },
+	{ 4, "dt", "profile", "hz", "" },
+	{ 5, "dt", "interval", "s", "" },
+	{ 6, "dt", "interval", "ms", "" },
+	{ 7, "dt", "interval", "us", "" },
+	{ 8, "dt", "interval", "us", "" },
+};
+int	probes_num = 9;
+
 void
 usage(void) {
 	extern char	*__progname;
@@ -40,13 +63,13 @@ main(int argc, char *argv[]) {
 	while ((ch = getopt(argc, argv, "de:l")) != -1) {
 		switch (ch){
 		case 'd':
-			dflag = 1;
+			dflag = 2;
 			break;
 		case 'e':
 			script = optarg;
 			break;
 		case 'l':
-			puts("Print providers");
+			print_probes();
 			exit(1);
 		default:
 			usage();
@@ -59,3 +82,15 @@ main(int argc, char *argv[]) {
 	return 0;
 }
 
+void print_probes() {
+	struct probe_el	*p;
+	int		 i;
+
+	printf("%4s %8s %8s %8s %-8s\n","ID", "PROVIDER", "MODULE", "FUNCTION", "NAME");
+	for (i = 0; i < probes_num; i++) {
+		p = &probes_list[i];
+		printf("%4zu %8s %8s %8s %-8s\n",p->id, p->provider, p->module,
+		    p->function, p->name);
+	}
+	printf("\n");
+}

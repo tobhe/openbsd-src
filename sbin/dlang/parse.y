@@ -1,3 +1,4 @@
+/*	$OpenBSD$	*/
 /*
  * Copyright (c) 2019 Tobias Heider <tobias.heider@stusta.de>
  * Copyright (c) 2015 Ted Unangst <tedu@openbsd.org>
@@ -27,8 +28,8 @@
 
 #include "dlang.h"
 
-static void	 print_probes();
-static void	 cleanup_probes();
+static void	 print_probes(void);
+static void	 cleanup_probes(void);
 
 static void	 yyerror(const char *, ...);
 static int	 yylex(void);
@@ -68,7 +69,7 @@ typedef struct {
 
 %}
 
-%token	THZ TS TMS TUS UUID EQUALS NOT_EQUALS NUMBER STRING PID
+%token	UUID EQUALS NOT_EQUALS NUMBER STRING PID
 
 %%
 
@@ -77,8 +78,9 @@ grammar		: /* empty */
 		;
 
 rule		: /* empty */
-		| probe filter_block instruction {
-			struct probe *p;
+		| probe filter_block body {
+			struct probe	*p;
+
 			p = calloc(1, sizeof(*p));
 			if (!p)
 				errx(1, "can't allocate probe");
@@ -101,8 +103,8 @@ rule		: /* empty */
 		;
 
 filter_block	: /* empty */
-		| '/' variable eq_comp NUMBER '/'
-		| '/' NUMBER eq_comp variable '/'
+		| '/' variable eq_comp STRING '/'
+		| '/' STRING eq_comp variable '/'
 		;
 
 variable	: UUID
@@ -126,8 +128,31 @@ opt_string	: /* empty */ {
 		| STRING {
 			$$.string = $1.string;
 		}
+		;
 
-instruction	: '{' STRING ';' '}' { $$.string = $2.string; }
+body		: '{' ops '}' {
+			$$.string = $2.string;
+		}
+		;
+
+ops		: /* empty */
+		| ops op ';' {
+			char	*str;
+			size_t		 len;
+
+			len = strlen($1.string) + strlen($2.string) + 2;
+			str = calloc(len, sizeof(char));
+			strncat(str,$1.string, len - 1);
+			strncat(str,",", len - 1);
+			strncat(str,$2.string, len - 1);
+			$$.string = str;
+		}
+		| op ';' {
+			$$.string = $1.string;
+		}
+		;
+
+op		: STRING { $$.string = $1.string; }
 		;
 
 %%
@@ -229,7 +254,7 @@ eow:
 		 */
 		if (c == EOF)
 			goto eof;
-		else if (qpos == -1)    /* accept, e.g., empty args: cmd foo args "" */
+		else if (qpos == -1) /* accept, e.g., empty args: cmd foo args "" */
 			goto repeat;
 	}
 
@@ -292,11 +317,11 @@ print_probes()
 	struct probe	*p;
 	int		 i;
 
-	printf("%8s\t%8s\t%8s\t\t%8s\n", "Provider", "Module", "Function", "Action");
-	printf("================================================================\n");
+	printf("%-8s\t%-8s\t%-8s\t\t%20s\n", "Provider", "Module", "Function", "Action");
+	printf("============================================================================\n");
 	for (i = 0; i < nprobes; i++) {
 		p = probes[i];
-		printf("%8s\t%8s\t%8s\t\t%8s\n", p->provider, p->module,
+		printf("%-8s\t%-8s\t%-8s\t\t%20s\n", p->provider, p->module,
 		    p->function, p->action);
 	}
 	printf("\n");
