@@ -630,8 +630,7 @@ ikev2_msg_decrypt(struct iked *env, struct iked_sa *sa,
 		}
 	}
 
-	if ((out = ibuf_new(NULL, cipher_outlength(sa->sa_encr,
-	    encrlen))) == NULL)
+	if ((out = ibuf_new(NULL, encrlen)) == NULL)
 		goto done;
 
 	/*

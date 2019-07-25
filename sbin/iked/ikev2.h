@@ -59,6 +59,7 @@ extern struct iked_constmap ikev2_state_map[];
 #define IKEV2_EXCHANGE_CREATE_CHILD_SA		36	/* Create Child SA */
 #define IKEV2_EXCHANGE_INFORMATIONAL		37	/* Informational */
 #define IKEV2_EXCHANGE_IKE_SESSION_RESUME	38	/* RFC5723 */
+#define IKEV2_EXCHANGE_IKE_INTERMEDIATE		240	/* Intermediate exchange */
 
 extern struct iked_constmap ikev2_exchange_map[];
 
@@ -156,7 +157,14 @@ struct ikev2_transform {
 #define IKEV2_XFORMTYPE_INTEGR		3	/* Integrity Algorithm */
 #define IKEV2_XFORMTYPE_DH		4	/* Diffie-Hellman Group */
 #define IKEV2_XFORMTYPE_ESN		5	/* Extended Sequence Numbers */
-#define IKEV2_XFORMTYPE_MAX		6
+#define IKEV2_XFORMTYPE_AK1		6	/* Additional Key Exchange 1 */
+#define IKEV2_XFORMTYPE_AK2		7	/* Additional Key Exchange 2 */
+#define IKEV2_XFORMTYPE_AK3		8	/* Additional Key Exchange 3 */
+#define IKEV2_XFORMTYPE_AK4		9	/* Additional Key Exchange 4 */
+#define IKEV2_XFORMTYPE_AK5		10	/* Additional Key Exchange 5 */
+#define IKEV2_XFORMTYPE_AK6		11	/* Additional Key Exchange 6 */
+#define IKEV2_XFORMTYPE_AK7		12	/* Additional Key Exchange 7 */
+#define IKEV2_XFORMTYPE_MAX		13
 
 extern struct iked_constmap ikev2_xformtype_map[];
 
@@ -367,6 +375,8 @@ struct ikev2_notify {
 #define IKEV2_N_IFOM_CAPABILITY			16428	/* OA3GPP */
 #define IKEV2_N_FRAGMENTATION_SUPPORTED		16430	/* RFC7383 */
 #define IKEV2_N_SIGNATURE_HASH_ALGORITHMS	16431	/* RFC7427 */
+#define IKEV2_N_INTERMEDIATE_EXCHANGE_SUPPORTED	32768	/* draft-smyslov-ipsecme-ikev2-aux */
+#define IKEV2_N_ADDITIONAL_KEY_EXCHANGE		32769	/* draft-tjhai-ipsecme-hybrid-qske-ikev2 */
 
 extern struct iked_constmap ikev2_n_map[];
 

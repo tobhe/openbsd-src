@@ -127,6 +127,7 @@ struct iked_proposal {
 
 	struct iked_transform		*prop_xforms;
 	unsigned int			 prop_nxforms;
+	unsigned int			 prop_nkexs;
 
 	TAILQ_ENTRY(iked_proposal)	 prop_entry;
 };
@@ -372,6 +373,7 @@ struct iked_kex {
 	struct ibuf			*kex_dhiexchange;
 	struct ibuf			*kex_dhrexchange;
 	struct ibuf			*kex_dhpeer;	/* pointer to i or r */
+	int				 kex_used;
 };
 
 struct iked_frag_entry {
@@ -431,7 +433,15 @@ struct iked_sa {
 	char				*sa_tag;
 	const char			*sa_reason;	/* reason for close */
 
-	struct iked_kex			 sa_kex;
+	union {
+		struct iked_kex			 sa_kex;
+		struct iked_kex			 sa_kex_arr[8];
+	};
+
+	unsigned int			 sa_kex_index;
+#define sa_kex_total		sa_proposals.tqh_first->prop_nkexs
+	uint32_t			 sa_rekey_id;
+
 /* XXX compat defines until everything is converted */
 #define sa_inonce		sa_kex.kex_inonce
 #define sa_rnonce		sa_kex.kex_rnonce
@@ -457,6 +467,7 @@ struct iked_sa {
 	struct iked_id			 sa_localauth;	/* local AUTH message */
 	struct iked_id			 sa_peerauth;	/* peer AUTH message */
 	int				 sa_sigsha2;	/* use SHA2 for signatures */
+	struct ibuf			*sa_int_auth;	/* INTERMEDIATE auth values */
 
 	struct iked_id			 sa_iid;	/* initiator id */
 	struct iked_id			 sa_rid;	/* responder id */
@@ -483,6 +494,7 @@ struct iked_sa {
 	struct iked_ipcomp		 sa_ipcompi;	/* IPcomp initator */
 	struct iked_ipcomp		 sa_ipcompr;	/* IPcomp responder */
 
+	int				 sa_inter;	/* IKE_INTERMEDIATE */
 	int				 sa_mobike;	/* MOBIKE */
 	int				 sa_frag;	/* fragmentation */
 
@@ -598,6 +610,7 @@ struct iked_message {
 	uint8_t			 msg_transform;
 	uint16_t		 msg_flags;
 	struct eap_msg		 msg_eap;
+	uint32_t		 msg_rekey_id;
 
 	/* MOBIKE */
 	int			 msg_update_sa_addresses;
@@ -722,6 +735,7 @@ struct iked {
 #define sc_frag			sc_static.st_frag
 #define sc_mobike		sc_static.st_mobike
 #define sc_nattport		sc_static.st_nattport
+	uint8_t				 sc_inter;	/* IKE_INTERMEDIATE */
 
 	struct iked_policies		 sc_policies;
 	struct iked_policy		*sc_defaultcon;

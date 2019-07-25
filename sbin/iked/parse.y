@@ -124,6 +124,20 @@ struct ipsec_transforms {
 	unsigned int		  nencxf;
 	const struct ipsec_xf	**groupxf;
 	unsigned int		  ngroupxf;
+	const struct ipsec_xf	**ak1xf;
+	unsigned int		  nak1xf;
+	const struct ipsec_xf	**ak2xf;
+	unsigned int		  nak2xf;
+	const struct ipsec_xf	**ak3xf;
+	unsigned int		  nak3xf;
+	const struct ipsec_xf	**ak4xf;
+	unsigned int		  nak4xf;
+	const struct ipsec_xf	**ak5xf;
+	unsigned int		  nak5xf;
+	const struct ipsec_xf	**ak6xf;
+	unsigned int		  nak6xf;
+	const struct ipsec_xf	**ak7xf;
+	unsigned int		  nak7xf;
 	const struct ipsec_xf	**esnxf;
 	unsigned int		  nesnxf;
 };
@@ -454,6 +468,7 @@ typedef struct {
 %token	FRAGMENTATION NOFRAGMENTATION DPD_CHECK_INTERVAL
 %token	ENFORCESINGLEIKESA NOENFORCESINGLEIKESA
 %token	TOLERATE MAXAGE
+%token	AKE1 AKE2 AKE3 AKE4 AKE5 AKE6 AKE7
 %token	<v.string>		STRING
 %token	<v.number>		NUMBER
 %type	<v.string>		string
@@ -897,13 +912,100 @@ transform	: AUTHXF STRING			{
 			ipsec_transforms->groupxf = xfs;
 			ipsec_transforms->ngroupxf++;
 		}
-		| transform_esn				{
-			const struct ipsec_xf **xfs = ipsec_transforms->esnxf;
-			size_t nxfs = ipsec_transforms->nesnxf;
+		| AKE1 STRING			{
+			const struct ipsec_xf **xfs = ipsec_transforms->ak1xf;
+			size_t nxfs = ipsec_transforms->nak1xf;
 			xfs = recallocarray(xfs, nxfs, nxfs + 1,
 			    sizeof(struct ipsec_xf *));
 			if (xfs == NULL)
 				err(1, "transform: recallocarray");
+			if ((xfs[nxfs] = parse_xf($2, 0, groupxfs)) == NULL)
+				yyerror("%s not a valid transform", $2);
+			free($2);
+			ipsec_transforms->ak1xf = xfs;
+			ipsec_transforms->nak1xf++;
+		}
+		| AKE2 STRING			{
+			const struct ipsec_xf **xfs = ipsec_transforms->ak2xf;
+			size_t nxfs = ipsec_transforms->nak2xf;
+			xfs = recallocarray(xfs, nxfs, nxfs + 1,
+			    sizeof(struct ipsec_xf *));
+			if (xfs == NULL)
+				err(1, "transform: recallocarray");
+			if ((xfs[nxfs] = parse_xf($2, 0, groupxfs)) == NULL)
+				yyerror("%s not a valid transform", $2);
+			free($2);
+			ipsec_transforms->ak2xf = xfs;
+			ipsec_transforms->nak2xf++;
+		}
+		| AKE3 STRING			{
+			const struct ipsec_xf **xfs = ipsec_transforms->ak3xf;
+			size_t nxfs = ipsec_transforms->nak3xf;
+			xfs = recallocarray(xfs, nxfs, nxfs + 1,
+			    sizeof(struct ipsec_xf *));
+			if (xfs == NULL)
+				err(1, "transform: recallocarray");
+			if ((xfs[nxfs] = parse_xf($2, 0, groupxfs)) == NULL)
+				yyerror("%s not a valid transform", $2);
+			free($2);
+			ipsec_transforms->ak3xf = xfs;
+			ipsec_transforms->nak3xf++;
+		}
+		| AKE4 STRING			{
+			const struct ipsec_xf **xfs = ipsec_transforms->ak4xf;
+			size_t nxfs = ipsec_transforms->nak4xf;
+			xfs = recallocarray(xfs, nxfs, nxfs + 1,
+			    sizeof(struct ipsec_xf *));
+			if (xfs == NULL)
+				err(1, "transform: recallocarray");
+			if ((xfs[nxfs] = parse_xf($2, 0, groupxfs)) == NULL)
+				yyerror("%s not a valid transform", $2);
+			free($2);
+			ipsec_transforms->ak4xf = xfs;
+			ipsec_transforms->nak4xf++;
+		}
+		| AKE5 STRING			{
+			const struct ipsec_xf **xfs = ipsec_transforms->ak5xf;
+			size_t nxfs = ipsec_transforms->nak5xf;
+			xfs = recallocarray(xfs, nxfs, nxfs + 1,
+			    sizeof(struct ipsec_xf *));
+			if (xfs == NULL)
+				err(1, "transform: recallocarray");
+			if ((xfs[nxfs] = parse_xf($2, 0, groupxfs)) == NULL)
+				yyerror("%s not a valid transform", $2);
+			free($2);
+			ipsec_transforms->ak5xf = xfs;
+			ipsec_transforms->nak5xf++;
+		}
+		| AKE6 STRING			{
+			const struct ipsec_xf **xfs = ipsec_transforms->ak6xf;
+			size_t nxfs = ipsec_transforms->nak6xf;
+			xfs = recallocarray(xfs, nxfs, nxfs + 1,
+			    sizeof(struct ipsec_xf *));
+			if (xfs == NULL)
+				err(1, "transform: recallocarray");
+			if ((xfs[nxfs] = parse_xf($2, 0, groupxfs)) == NULL)
+				yyerror("%s not a valid transform", $2);
+			free($2);
+			ipsec_transforms->ak6xf = xfs;
+			ipsec_transforms->nak6xf++;
+		}
+		| AKE7 STRING			{
+			const struct ipsec_xf **xfs = ipsec_transforms->ak7xf;
+			size_t nxfs = ipsec_transforms->nak7xf;
+			xfs = recallocarray(xfs, nxfs, nxfs + 1,
+			    sizeof(struct ipsec_xf *));
+			if (xfs == NULL)
+				err(1, "transform: recallocarray");
+			if ((xfs[nxfs] = parse_xf($2, 0, groupxfs)) == NULL)
+				yyerror("%s not a valid transform", $2);
+			free($2);
+			ipsec_transforms->ak7xf = xfs;
+			ipsec_transforms->nak7xf++;
+		}
+		| transform_esn				{
+			const struct ipsec_xf **xfs = ipsec_transforms->esnxf;
+			size_t nxfs = ipsec_transforms->nesnxf;
 			if ((xfs[nxfs] = parse_xf($1, 0, esnxfs)) == NULL) {
 				yyerror("%s not a valid transform", $1);
 				YYERROR;
@@ -1300,6 +1402,13 @@ lookup(char *s)
 	static const struct keywords keywords[] = {
 		{ "active",		ACTIVE },
 		{ "ah",			AH },
+		{ "ake1",		AKE1 },
+		{ "ake2",		AKE2 },
+		{ "ake3",		AKE3 },
+		{ "ake4",		AKE4 },
+		{ "ake5",		AKE5 },
+		{ "ake6",		AKE6 },
+		{ "ake7",		AKE7 },
 		{ "any",		ANY },
 		{ "auth",		AUTHXF },
 		{ "bytes",		BYTES },
@@ -2507,10 +2616,37 @@ print_policy(struct iked_policy *pol)
 						print_verbose(" group ");
 						xfs = groupxfs;
 						break;
+					case IKEV2_XFORMTYPE_AK1:
+						print_verbose(" ake1 ");
+						xfs = groupxfs;
+						break;
+					case IKEV2_XFORMTYPE_AK2:
+						print_verbose(" ake2 ");
+						xfs = groupxfs;
+						break;
+					case IKEV2_XFORMTYPE_AK3:
+						print_verbose(" ake3 ");
+						xfs = groupxfs;
+						break;
+					case IKEV2_XFORMTYPE_AK4:
+						print_verbose(" ake4 ");
+						xfs = groupxfs;
+						break;
+					case IKEV2_XFORMTYPE_AK5:
+						print_verbose(" ake5 ");
+						xfs = groupxfs;
+						break;
+					case IKEV2_XFORMTYPE_AK6:
+						print_verbose(" ake6 ");
+						xfs = groupxfs;
+						break;
+					case IKEV2_XFORMTYPE_AK7:
+						print_verbose(" ake7 ");
+						xfs = groupxfs;
+						break;
 					case IKEV2_XFORMTYPE_ESN:
 						print_verbose(" ");
 						xfs = esnxfs;
-						break;
 					default:
 						continue;
 					}
@@ -2821,6 +2957,41 @@ create_ike(char *name, int af, uint8_t ipproto,
 				    ike_sa->xfs[i]->nprfxf, &xf, &xfi,
 				    ikev2_default_ike_transforms_noauth,
 				    ikev2_default_nike_transforms_noauth);
+				copy_transforms(IKEV2_XFORMTYPE_AK1,
+				    ike_sa->xfs[i]->ak1xf,
+				    ike_sa->xfs[i]->nak1xf, &xf, &xfi,
+				    ikev2_default_ike_transforms,
+				    ikev2_default_nike_transforms);
+				copy_transforms(IKEV2_XFORMTYPE_AK2,
+				    ike_sa->xfs[i]->ak2xf,
+				    ike_sa->xfs[i]->nak2xf, &xf, &xfi,
+				    ikev2_default_ike_transforms,
+				    ikev2_default_nike_transforms);
+				copy_transforms(IKEV2_XFORMTYPE_AK3,
+				    ike_sa->xfs[i]->ak3xf,
+				    ike_sa->xfs[i]->nak3xf, &xf, &xfi,
+				    ikev2_default_ike_transforms,
+				    ikev2_default_nike_transforms);
+				copy_transforms(IKEV2_XFORMTYPE_AK4,
+				    ike_sa->xfs[i]->ak4xf,
+				    ike_sa->xfs[i]->nak4xf, &xf, &xfi,
+				    ikev2_default_ike_transforms,
+				    ikev2_default_nike_transforms);
+				copy_transforms(IKEV2_XFORMTYPE_AK5,
+				    ike_sa->xfs[i]->ak5xf,
+				    ike_sa->xfs[i]->nak5xf, &xf, &xfi,
+				    ikev2_default_ike_transforms,
+				    ikev2_default_nike_transforms);
+				copy_transforms(IKEV2_XFORMTYPE_AK6,
+				    ike_sa->xfs[i]->ak6xf,
+				    ike_sa->xfs[i]->nak6xf, &xf, &xfi,
+				    ikev2_default_ike_transforms,
+				    ikev2_default_nike_transforms);
+				copy_transforms(IKEV2_XFORMTYPE_AK7,
+				    ike_sa->xfs[i]->ak7xf,
+				    ike_sa->xfs[i]->nak7xf, &xf, &xfi,
+				    ikev2_default_ike_transforms,
+				    ikev2_default_nike_transforms);
 
 				p->prop_id = ikepropid++;
 				p->prop_protoid = IKEV2_SAPROTO_IKE;
@@ -2853,6 +3024,41 @@ create_ike(char *name, int af, uint8_t ipproto,
 				copy_transforms(IKEV2_XFORMTYPE_PRF,
 				    ike_sa->xfs[i]->prfxf,
 				    ike_sa->xfs[i]->nprfxf, &xf, &xfi,
+				    ikev2_default_ike_transforms,
+				    ikev2_default_nike_transforms);
+				copy_transforms(IKEV2_XFORMTYPE_AK1,
+				    ike_sa->xfs[i]->ak1xf,
+				    ike_sa->xfs[i]->nak1xf, &xf, &xfi,
+				    ikev2_default_ike_transforms,
+				    ikev2_default_nike_transforms);
+				copy_transforms(IKEV2_XFORMTYPE_AK2,
+				    ike_sa->xfs[i]->ak2xf,
+				    ike_sa->xfs[i]->nak2xf, &xf, &xfi,
+				    ikev2_default_ike_transforms,
+				    ikev2_default_nike_transforms);
+				copy_transforms(IKEV2_XFORMTYPE_AK3,
+				    ike_sa->xfs[i]->ak3xf,
+				    ike_sa->xfs[i]->nak3xf, &xf, &xfi,
+				    ikev2_default_ike_transforms,
+				    ikev2_default_nike_transforms);
+				copy_transforms(IKEV2_XFORMTYPE_AK4,
+				    ike_sa->xfs[i]->ak4xf,
+				    ike_sa->xfs[i]->nak4xf, &xf, &xfi,
+				    ikev2_default_ike_transforms,
+				    ikev2_default_nike_transforms);
+				copy_transforms(IKEV2_XFORMTYPE_AK5,
+				    ike_sa->xfs[i]->ak5xf,
+				    ike_sa->xfs[i]->nak5xf, &xf, &xfi,
+				    ikev2_default_ike_transforms,
+				    ikev2_default_nike_transforms);
+				copy_transforms(IKEV2_XFORMTYPE_AK6,
+				    ike_sa->xfs[i]->ak6xf,
+				    ike_sa->xfs[i]->nak6xf, &xf, &xfi,
+				    ikev2_default_ike_transforms,
+				    ikev2_default_nike_transforms);
+				copy_transforms(IKEV2_XFORMTYPE_AK7,
+				    ike_sa->xfs[i]->ak7xf,
+				    ike_sa->xfs[i]->nak7xf, &xf, &xfi,
 				    ikev2_default_ike_transforms,
 				    ikev2_default_nike_transforms);
 

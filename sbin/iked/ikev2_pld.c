@@ -502,6 +502,13 @@ ikev2_pld_xform(struct iked *env, struct iked_message *msg,
 		    ikev2_xformauth_map), sizeof(id));
 		break;
 	case IKEV2_XFORMTYPE_DH:
+	case IKEV2_XFORMTYPE_AK1:
+	case IKEV2_XFORMTYPE_AK2:
+	case IKEV2_XFORMTYPE_AK3:
+	case IKEV2_XFORMTYPE_AK4:
+	case IKEV2_XFORMTYPE_AK5:
+	case IKEV2_XFORMTYPE_AK6:
+	case IKEV2_XFORMTYPE_AK7:
 		strlcpy(id, print_map(betoh16(xfrm.xfrm_id),
 		    ikev2_xformdh_map), sizeof(id));
 		break;
