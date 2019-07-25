@@ -386,7 +386,7 @@ ikev2_msg_id(struct iked *env, struct iked_sa *sa)
 struct ibuf *
 ikev2_msg_encrypt(struct iked *env, struct iked_sa *sa, struct ibuf *src)
 {
-	size_t			 len, ivlen, encrlen, integrlen, blocklen,
+	size_t			 len, encrlen, integrlen, blocklen,
 				    outlen;
 	uint8_t			*buf, pad = 0, *ptr;
 	struct ibuf		*encr, *dst = NULL, *out = NULL;
@@ -410,7 +410,6 @@ ikev2_msg_encrypt(struct iked *env, struct iked_sa *sa, struct ibuf *src)
 		encr = sa->sa_key_rencr;
 
 	blocklen = cipher_length(sa->sa_encr);
-	ivlen = cipher_ivlength(sa->sa_encr);
 	integrlen = hash_length(sa->sa_integr);
 	encrlen = roundup(len + sizeof(pad), blocklen);
 	pad = encrlen - (len + sizeof(pad));
@@ -430,7 +429,7 @@ ikev2_msg_encrypt(struct iked *env, struct iked_sa *sa, struct ibuf *src)
 	print_hex(ibuf_data(src), 0, ibuf_size(src));
 
 	cipher_setkey(sa->sa_encr, encr->buf, ibuf_length(encr));
-	cipher_setiv(sa->sa_encr, NULL, 0);	/* XXX ivlen */
+	cipher_setiv(sa->sa_encr, NULL, 0);
 	cipher_init_encrypt(sa->sa_encr);
 
 	if ((dst = ibuf_dup(sa->sa_encr->encr_iv)) == NULL)
@@ -527,8 +526,8 @@ struct ibuf *
 ikev2_msg_decrypt(struct iked *env, struct iked_sa *sa,
     struct ibuf *msg, struct ibuf *src)
 {
-	ssize_t			 ivlen, encrlen, integrlen, blocklen,
-				    outlen, tmplen;
+	ssize_t			 ivlen, encrlen, integrlen, blocklen;
+	size_t			 outlen, tmplen;
 	uint8_t			 pad = 0, *ptr;
 	struct ibuf		*integr, *encr, *tmp = NULL, *out = NULL;
 	off_t			 ivoff, encroff, integroff;
@@ -604,8 +603,7 @@ ikev2_msg_decrypt(struct iked *env, struct iked_sa *sa,
 	cipher_setiv(sa->sa_encr, ibuf_data(src) + ivoff, ivlen);
 	cipher_init_decrypt(sa->sa_encr);
 
-	if ((out = ibuf_new(NULL, cipher_outlength(sa->sa_encr,
-	    encrlen))) == NULL)
+	if ((out = ibuf_new(NULL, encrlen)) == NULL)
 		goto done;
 
 	if ((outlen = ibuf_length(out)) != 0) {

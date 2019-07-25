@@ -1222,7 +1222,7 @@ pfkey_reply(int sd, uint8_t **datap, ssize_t *lenp)
 		evtimer_add(&pfkey_timer_ev, &pfkey_timer_tv);
 	}
 
-	if (datap) {
+	if (datap != NULL) {
 		*datap = data;
 		if (lenp)
 			*lenp = len;

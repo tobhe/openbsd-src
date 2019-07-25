@@ -331,6 +331,13 @@ config_add_transform(struct iked_proposal *prop, unsigned int type,
 		map = ikev2_xformauth_map;
 		break;
 	case IKEV2_XFORMTYPE_DH:
+	case IKEV2_XFORMTYPE_AK1:
+	case IKEV2_XFORMTYPE_AK2:
+	case IKEV2_XFORMTYPE_AK3:
+	case IKEV2_XFORMTYPE_AK4:
+	case IKEV2_XFORMTYPE_AK5:
+	case IKEV2_XFORMTYPE_AK6:
+	case IKEV2_XFORMTYPE_AK7:
 		map = ikev2_xformdh_map;
 		break;
 	case IKEV2_XFORMTYPE_ESN:
@@ -358,6 +365,14 @@ config_add_transform(struct iked_proposal *prop, unsigned int type,
 				score += 3;
 				break;
 			case IKEV2_XFORMTYPE_DH:
+			case IKEV2_XFORMTYPE_AK1:
+			case IKEV2_XFORMTYPE_AK2:
+			case IKEV2_XFORMTYPE_AK3:
+			case IKEV2_XFORMTYPE_AK4:
+			case IKEV2_XFORMTYPE_AK5:
+			case IKEV2_XFORMTYPE_AK6:
+			case IKEV2_XFORMTYPE_AK7:
+				prop->prop_nkexs += 1;
 				score += 2;
 				break;
 			default:

@@ -375,6 +375,9 @@ is given, the default peer is used.
 .Ic enc Ar algorithm
 .Ic prf Ar algorithm
 .Ic group Ar group
+.Ic ake1 Ar group
+.Ic ...
+.Ic ake7 Ar group
 .Xc
 These parameters define the mode and cryptographic transforms to be
 used for the IKE SA negotiation, also known as phase 1.
@@ -386,6 +389,7 @@ Possible values for
 .Ic enc ,
 .Ic prf ,
 .Ic group ,
+.Ic ake[1-7],
 and the default proposals are described below in
 .Sx CRYPTO TRANSFORMS .
 If omitted,
@@ -400,8 +404,9 @@ The keywords
 .Ic auth ,
 .Ic enc ,
 .Ic prf
-and
 .Ic group
+and
+.Ic ake[1-7]
 can be used multiple times within a single proposal to configure
 multiple crypto transforms.
 .It Xo
@@ -860,7 +865,9 @@ This is useful in setups where AH cannot be used, e.g. when NAT is involved.
 .Pp
 The following group types are permitted with the
 .Ic group
-keyword:
+and
+.Ic ake[1-7]
+keywords:
 .Bl -column "modp1024-160" "Group" "Size" "Type" -offset indent
 .It Em Name Ta Em Group Ta Em Size Ta Em Type
 .It Li modp768 Ta grp1 Ta 768 Ta "MODP"
