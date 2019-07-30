@@ -43,12 +43,15 @@ struct group {
 	void		*dh;
 	void		*ec;
 	void		*curve25519;
+	void		*pqkem;
 
 	int		(*init)(struct group *);
 	int		(*getlen)(struct group *);
 	int		(*secretlen)(struct group *);
 	int		(*exchange)(struct group *, uint8_t *);
+	int		(*exchange2)(struct group *, struct ibuf**, struct ibuf *);
 	int		(*shared)(struct group *, uint8_t *, uint8_t *);
+	int		(*shared2)(struct group *, struct ibuf **, struct ibuf *);
 };
 
 #define DH_MAXSZ	1024	/* 8192 bits */
@@ -59,9 +62,7 @@ struct group	*group_get(uint32_t);
 const struct group_id
 		*group_getid(uint32_t);
 
-int		 dh_getlen(struct group *);
-int		 dh_secretlen(struct group *);
-int		 dh_create_exchange(struct group *, uint8_t *);
-int		 dh_create_shared(struct group *, uint8_t *, uint8_t *);
+int		 dh_create_exchange(struct group *, struct ibuf **, struct ibuf *);
+int		 dh_create_shared(struct group *, struct ibuf **, struct ibuf *);
 
 #endif /* DH_GROUP_H */
