@@ -275,7 +275,36 @@ const struct group_id ike_groups[] = {
 	{ GROUP_ECP, 30, 512, NULL, NULL, NID_brainpoolP512r1 },
 	{ GROUP_CURVE25519, 31, CURVE25519_SIZE * 8 },
 #ifdef OQS
-	{ GROUP_SIDH, 32, 751, OQS_KEM_alg_sidh_p503},
+	/* BIKE */
+	{ GROUP_PQKE, 1034, 0, OQS_KEM_alg_bike1_l1},
+	{ GROUP_PQKE, 1035, 0, OQS_KEM_alg_bike1_l3},
+	{ GROUP_PQKE, 1036, 0, OQS_KEM_alg_bike1_l5},
+	{ GROUP_PQKE, 1037, 0, OQS_KEM_alg_bike2_l1},
+	{ GROUP_PQKE, 1038, 0, OQS_KEM_alg_bike2_l3},
+	{ GROUP_PQKE, 1039, 0, OQS_KEM_alg_bike2_l5},
+	{ GROUP_PQKE, 1040, 0, OQS_KEM_alg_bike3_l1},
+	{ GROUP_PQKE, 1041, 0, OQS_KEM_alg_bike3_l3},
+	{ GROUP_PQKE, 1042, 0, OQS_KEM_alg_bike3_l5},
+	/* FrodoKEM */
+	{ GROUP_PQKE, 1043, 0, OQS_KEM_alg_frodokem_640_aes},
+	{ GROUP_PQKE, 1044, 0, OQS_KEM_alg_frodokem_640_shake},
+	{ GROUP_PQKE, 1045, 0, OQS_KEM_alg_frodokem_976_aes},
+	{ GROUP_PQKE, 1046, 0, OQS_KEM_alg_frodokem_976_shake},
+	{ GROUP_PQKE, 1047, 0, OQS_KEM_alg_frodokem_1344_aes},
+	{ GROUP_PQKE, 1048, 0, OQS_KEM_alg_frodokem_1344_shake},
+	/* NewHope */
+	{ GROUP_PQKE, 1049, 0, OQS_KEM_alg_newhope_512_cca_kem},
+	{ GROUP_PQKE, 1050, 0, OQS_KEM_alg_newhope_1024_cca_kem},
+	/* Kyber */
+	{ GROUP_PQKE, 1051, 0, OQS_KEM_alg_kyber_512_cca_kem},
+	{ GROUP_PQKE, 1052, 0, OQS_KEM_alg_kyber_768_cca_kem},
+	{ GROUP_PQKE, 1053, 0, OQS_KEM_alg_kyber_1024_cca_kem},
+	/* PQKE */
+	{ GROUP_PQKE, 1054, 0, OQS_KEM_alg_sidh_p503},
+	{ GROUP_PQKE, 1055, 0, OQS_KEM_alg_sidh_p751},
+	/* SIKE */
+	{ GROUP_PQKE, 1056, 0, OQS_KEM_alg_sike_p503},
+	{ GROUP_PQKE, 1057, 0, OQS_KEM_alg_sike_p751},
 #endif
 };
 
@@ -336,7 +365,7 @@ group_get(uint32_t id)
 		group->shared = ec25519_create_shared;
 		break;
 #ifdef OQS
-	case GROUP_SIDH:
+	case GROUP_PQKE:
 		group->init = oqskem_init;
 		group->getlen = oqskem_getlen;
 		group->exchange2 = oqskem_create_exchange2;
@@ -787,9 +816,9 @@ oqskem_init(struct group *group)
 	if ((oqs->kem = OQS_KEM_new(group->spec->prime)) == NULL)
 		return (-1);
 
-	oqs->public = malloc(oqs->kem->length_public_key);
-	oqs->secret = malloc(oqs->kem->length_secret_key);
-	oqs->shared = malloc(oqs->kem->length_shared_secret);
+	oqs->public = calloc(1, oqs->kem->length_public_key);
+	oqs->secret = calloc(1, oqs->kem->length_secret_key);
+	oqs->shared = calloc(1, oqs->kem->length_shared_secret);
 
 	return (0);
 }

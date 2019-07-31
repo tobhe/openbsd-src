@@ -24,7 +24,7 @@ enum group_type {
 	GROUP_ECP		= 1,
 	GROUP_CURVE25519	= 2
 #ifdef OQS
-	GROUP_SIDH		= 3,
+	GROUP_PQKE		= 3,
 #endif
 };
 
