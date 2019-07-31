@@ -11,6 +11,8 @@ MAN=		iked.conf.5 iked.8
 #NOMAN=		yes
 
 LDADD=		-lutil -levent -lcrypto
+LDADD+=		-Lliboqs -loqs
+CFLAGS+=	-Iliboqs/include
 DPADD=		${LIBUTIL} ${LIBEVENT} ${LIBCRYPTO}
 CFLAGS+=	-Wall -I${.CURDIR}
 CFLAGS+=	-Wstrict-prototypes -Wmissing-prototypes
