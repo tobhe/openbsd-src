@@ -23,7 +23,10 @@ enum group_type {
 	GROUP_MODP		= 0,
 	GROUP_EC2N		= 1,
 	GROUP_ECP		= 2,
-	GROUP_CURVE25519	= 3
+	GROUP_CURVE25519	= 3,
+#ifdef OQS
+	GROUP_SIDH		= 4,
+#endif
 };
 
 struct group_id {
@@ -43,7 +46,9 @@ struct group {
 	void		*dh;
 	void		*ec;
 	void		*curve25519;
-	void		*pqkem;
+#ifdef OQS
+	void		*pq;
+#endif
 
 	int		(*init)(struct group *);
 	int		(*getlen)(struct group *);

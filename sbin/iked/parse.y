@@ -270,6 +270,9 @@ const struct ipsec_xf groupxfs[] = {
 	{ "brainpool512",	IKEV2_XFORMDH_BRAINPOOL_P512R1 },
 	{ "grp30",		IKEV2_XFORMDH_BRAINPOOL_P512R1 },
 	{ "curve25519",		IKEV2_XFORMDH_CURVE25519 },
+#ifdef OQS
+	{ "sidhp751",		IKEV2_XFORMDH_SIDHP751 },
+#endif
 	{ NULL }
 };
 

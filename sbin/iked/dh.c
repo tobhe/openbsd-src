@@ -29,6 +29,10 @@
 #include <openssl/ecdh.h>
 #include <openssl/bn.h>
 
+#ifdef OQS
+#include <oqs/oqs.h>
+#endif
+
 #include "dh.h"
 
 /* XXX import */
@@ -64,6 +68,22 @@ int	ec25519_init(struct group *);
 int	ec25519_getlen(struct group *);
 int	ec25519_create_exchange(struct group *, uint8_t *);
 int	ec25519_create_shared(struct group *, uint8_t *, uint8_t *);
+
+#ifdef OQS
+/* oqskem */
+int	oqskem_init(struct group *);
+int	oqskem_getlen(struct group *);
+int	oqskem_create_exchange2(struct group *, struct ibuf **, struct ibuf *);
+int	oqskem_create_shared2(struct group *, struct ibuf **, struct ibuf *);
+
+struct oqskem_key {
+	OQS_KEM		*kem;
+	int		 initiator;
+	uint8_t		*secret;
+	uint8_t		*public;
+	uint8_t		*shared;
+};
+#endif
 
 #define CURVE25519_SIZE 32	/* 256 bits */
 struct curve25519_key {
@@ -255,7 +275,10 @@ const struct group_id ike_groups[] = {
 	{ GROUP_ECP, 28, 256, NULL, NULL, NID_brainpoolP256r1 },
 	{ GROUP_ECP, 29, 384, NULL, NULL, NID_brainpoolP384r1 },
 	{ GROUP_ECP, 30, 512, NULL, NULL, NID_brainpoolP512r1 },
-	{ GROUP_CURVE25519, 31, CURVE25519_SIZE * 8 }
+	{ GROUP_CURVE25519, 31, CURVE25519_SIZE * 8 },
+#ifdef OQS
+	{ GROUP_SIDH, 32, 751, OQS_KEM_alg_sidh_p503},
+#endif
 };
 
 void
@@ -315,6 +338,14 @@ group_get(uint32_t id)
 		group->exchange = ec25519_create_exchange;
 		group->shared = ec25519_create_shared;
 		break;
+#ifdef OQS
+	case GROUP_SIDH:
+		group->init = oqskem_init;
+		group->getlen = oqskem_getlen;
+		group->exchange2 = oqskem_create_exchange2;
+		group->shared2 = oqskem_create_shared2;
+		break;
+#endif
 	default:
 		group_free(group);
 		return (NULL);
@@ -741,3 +772,96 @@ ec25519_create_shared(struct group *group, uint8_t *shared, uint8_t *public)
 	crypto_scalarmult_curve25519(shared, curve25519->secret, public);
 	return (0);
 }
+
+#ifdef OQS
+int
+oqskem_init(struct group *group)
+{
+	struct oqskem_key	*oqs = NULL;
+
+	if (group->spec == NULL)
+		return (0);
+
+	if ((oqs = calloc(1, sizeof(*oqs))) == NULL)
+		return (-1);
+
+	group->pq = oqs;
+
+	if ((oqs->kem = OQS_KEM_new(group->spec->prime)) == NULL)
+		return (-1);
+
+	oqs->public = malloc(oqs->kem->length_public_key);
+	oqs->secret = malloc(oqs->kem->length_secret_key);
+	oqs->shared = malloc(oqs->kem->length_shared_secret);
+
+	return (0);
+}
+
+int
+oqskem_getlen(struct group *group)
+{
+	return (0);
+}
+
+int
+oqskem_create_exchange2(struct group *group, struct ibuf **sharedp,
+    struct ibuf *exchange)
+{
+	struct ibuf		*buf = NULL;
+	struct oqskem_key	*oqs = NULL;
+
+
+	if ((oqs = group->pq) == NULL)
+		return (-1);
+
+	if (exchange == NULL) {
+		oqs->initiator = 1;
+		if (oqs->kem == NULL)
+			return (-1);
+
+		if (OQS_KEM_keypair(oqs->kem, oqs->public, oqs->secret) != 0)
+			return (-1);
+
+		buf = ibuf_new(NULL, oqs->kem->length_public_key);
+		if (buf == NULL)
+			return (-1);
+
+		memcpy(buf->buf, oqs->public, oqs->kem->length_public_key);
+	} else {
+		oqs->initiator = 0;
+
+		memcpy(oqs->public, exchange->buf, oqs->kem->length_public_key);
+
+		buf = ibuf_new(NULL, oqs->kem->length_ciphertext);
+		if (buf == NULL)
+			return (-1);
+
+		OQS_KEM_encaps(oqs->kem, buf->buf, oqs->shared, oqs->public);
+	}
+	*sharedp = buf;
+	return (0);
+}
+
+int
+oqskem_create_shared2(struct group *group, struct ibuf **sharedp,
+    struct ibuf *exchange)
+{
+	struct ibuf		*buf = NULL;
+	struct oqskem_key	*oqs;
+
+	*sharedp = NULL;
+	oqs = group->pq;
+
+	if (oqs->initiator && exchange != NULL)
+		OQS_KEM_decaps(oqs->kem, oqs->shared, exchange->buf, oqs->secret);
+
+	buf = ibuf_new(NULL, oqs->kem->length_shared_secret);
+	if (buf == NULL)
+		return (-1);
+
+	memcpy(buf->buf, oqs->shared, oqs->kem->length_shared_secret);
+
+	*sharedp = buf;
+	return (0);
+}
+#endif
