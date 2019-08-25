@@ -36,3 +36,6 @@ struct dhcp6_duid_llpt {
 	uint32_t	 llpt_time;
 	/* followd by MAC addr */
 } __packed;
+
+int			 dhcp6_get_duid(struct ether_addr *, uint8_t,
+			    struct dhcp6_duid *d);
