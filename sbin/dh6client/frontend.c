@@ -53,12 +53,12 @@ __dead void	 frontend_shutdown(void);
 void		 frontend_sig_handler(int, short, void *);
 void		 frontend_startup(void);
 
-int		 get_flags(char *);
-int		 get_xflags(char *);
-int		 get_hwaddr(char *, struct ether_addr *);
-void		 update_iface(uint32_t, char*);
+int		 if_get_flags(char *);
+int		 if_get_xflags(char *);
+int		 if_get_hwaddr(char *, struct ether_addr *);
+void		 if_update(uint32_t, char*);
 
-void		 dh6_client_receive(int fd, short events, void *arg);
+void		 dh6client_recv(int fd, short events, void *arg);
 
 struct imsgev			*iev_main;
 struct imsgev			*iev_engine;
@@ -237,7 +237,7 @@ frontend_dispatch_main(int fd, short event, void *bula)
 				    "ICMPv6 fd but didn't receive any",
 				    __func__);
 			event_set(&dhcp6ev.ev, dhcp6sock, EV_READ | EV_PERSIST,
-			    dh6_client_receive, NULL);
+			    dh6client_recv, NULL);
 			break;
 		case IMSG_STARTUP:
 			if (pledge("stdio unix route", NULL) == -1)
@@ -315,7 +315,7 @@ frontend_dispatch_engine(int fd, short event, void *bula)
 }
 
 int
-get_flags(char *if_name)
+if_get_flags(char *if_name)
 {
 	struct ifreq		 ifr;
 
@@ -326,7 +326,7 @@ get_flags(char *if_name)
 }
 
 int
-get_xflags(char *if_name)
+if_get_xflags(char *if_name)
 {
 	struct ifreq		 ifr;
 
@@ -337,7 +337,7 @@ get_xflags(char *if_name)
 }
 
 int
-get_hwaddr(char *if_name, struct ether_addr *mac)
+if_get_hwaddr(char *if_name, struct ether_addr *mac)
 {
 	struct ifaddrs		*ifap, *ifa;
 	struct sockaddr_dl	*sdl;
@@ -375,13 +375,13 @@ get_hwaddr(char *if_name, struct ether_addr *mac)
 }
 
 void
-update_iface(uint32_t if_index, char* if_name)
+if_update(uint32_t if_index, char* if_name)
 {
 	struct imsg_ifinfo	 imsg_ifinfo;
 	int			 flags, xflags;
 
-	flags = get_flags(if_name);
-	xflags = get_xflags(if_name);
+	flags = if_get_flags(if_name);
+	xflags = if_get_xflags(if_name);
 
 	// if (!(xflags & IFXF_AUTOCONF6))
 	// 	return;
@@ -392,7 +392,7 @@ update_iface(uint32_t if_index, char* if_name)
 	imsg_ifinfo.running = (flags & (IFF_UP | IFF_RUNNING)) == (IFF_UP |
 	    IFF_RUNNING);
 
-	if (get_hwaddr(if_name, &imsg_ifinfo.hw_address) != 0) {
+	if (if_get_hwaddr(if_name, &imsg_ifinfo.hw_address) != 0) {
 		log_debug("%s: failed to get HW address for iface %s.",
 		    __func__, if_name);
 		return;
@@ -420,14 +420,14 @@ frontend_startup(void)
 
 	for(ifnidx = ifnidxp; ifnidx->if_index !=0 && ifnidx->if_name != NULL;
 	    ifnidx++) {
-		update_iface(ifnidx->if_index, ifnidx->if_name);
+		if_update(ifnidx->if_index, ifnidx->if_name);
 	}
 
 	if_freenameindex(ifnidxp);
 }
 
 void
-dh6_client_receive(int fd, short events, void *arg)
+dh6client_recv(int fd, short events, void *arg)
 {
 	struct imsg_dhcp6	 msg;
 	struct in6_pktinfo	*pi = NULL;
