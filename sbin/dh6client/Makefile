@@ -1,7 +1,7 @@
 #	$OpenBSD$
 
 PROG=	dh6client
-SRCS=	dh6client.c frontend.c log.c dhcp6.c engine.c
+SRCS=	dh6client.c frontend.c log.c dhcp6.c engine.c test.c
 
 MAN=	slaacd.8
 

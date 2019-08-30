@@ -20,6 +20,9 @@
  */
 
 #include "netinet/in.h"
+#include <net/if.h>
+#include <netinet/if_ether.h>
+#include "event.h"
 
 #define	DH6CLIENT_SOCKET		"/dev/dh6client.sock"
 #define DH6CLIENT_USER		"_slaacd"
@@ -92,6 +95,8 @@ struct imsg_dhcp6 {
 void		imsg_event_add(struct imsgev *);
 int		imsg_compose_event(struct imsgev *, uint16_t, uint32_t, pid_t,
 		    int, void *, uint16_t);
+int		test_parser(void);
+
 #ifndef	SMALL
 const char	*sin6_to_str(struct sockaddr_in6 *);
 #else

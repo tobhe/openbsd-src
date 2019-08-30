@@ -16,7 +16,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <arpa/inet.h>
 #include <sys/socket.h>
+#include <net/if.h>
+#include <netinet/if_ether.h>
 
 struct dhcp6_duid {
 	uint8_t		 duid_type;
@@ -36,6 +39,19 @@ struct dhcp6_duid_llpt {
 	uint32_t	 llpt_time;
 	/* followd by MAC addr */
 } __packed;
+
+struct dhcp6_msg {
+	uint8_t					msg_type;
+	uint8_t					msg_transaction_id[3];
+	SLIST_HEAD(dhcp6_options, dhcp6_option)	msg_options;
+};
+
+int		 dhcp6_msg_add_option(struct dhcp6_msg *, int, uint8_t *, size_t);
+struct ibuf	*dhcp6_msg_serialize(struct dhcp6_msg *);
+struct dhcp6_msg	*dhcp6_msg_init(uint8_t);
+struct dhcp6_msg	*dhcp6_msg_parse(uint8_t*, size_t);
+void			 dhcp6_msg_print(struct dhcp6_msg *);
+
 
 int			 dhcp6_get_duid(struct ether_addr *, uint8_t,
 			    struct dhcp6_duid *d);

@@ -115,11 +115,13 @@ main(int argc, char *argv[])
 	if (saved_argv0 == NULL)
 		saved_argv0 = "dh6client";
 
-	while ((ch = getopt(argc, argv, "dEFs:v")) != -1) {
+	while ((ch = getopt(argc, argv, "dtEFs:v")) != -1) {
 		switch (ch) {
 		case 'd':
 			debug = 1;
 			break;
+		case 't':
+			return test_parser();
 		case 'E':
 			engine_flag = 1;
 			break;
