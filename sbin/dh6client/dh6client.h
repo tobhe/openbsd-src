@@ -19,10 +19,24 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "netinet/in.h"
+
+#ifndef DH6CLIENT_H
+#define DH6CLIENT_H
+
+#include <netinet/in.h>
 #include <net/if.h>
 #include <netinet/if_ether.h>
+#include <sys/types.h>
+#include <sys/queue.h>
+#include <sys/uio.h>
+
+
+#include <stdint.h>
+#include <imsg.h>
 #include "event.h"
+
+
+#include "dhcp6.h"
 
 #define	DH6CLIENT_SOCKET		"/dev/dh6client.sock"
 #define DH6CLIENT_USER		"_slaacd"
@@ -34,6 +48,35 @@
 #define DH6CLIENT_MAX_DNSSL	1025
 
 #define	IMSG_DATA_SIZE(imsg)	((imsg).hdr.len - IMSG_HEADER_SIZE)
+
+enum if_state {
+	IF_DOWN,
+	IF_DELAY,
+	IF_PROBE,
+	IF_IDLE,
+};
+
+struct dh6client_server {
+	struct sockaddr_in6	addr;
+};
+
+struct dh6client_iface {
+	LIST_ENTRY(dh6client_iface)	 entries;
+	enum if_state			 state;
+	struct event			 timer;
+	int				 probes;
+	uint32_t			 if_index;
+	int				 running;
+	struct ether_addr		 hw_address;
+	struct sockaddr_in6		 ll_address;
+	int				 link_state;
+	uint32_t			 cur_mtu;
+	struct dhcp6_duid		 duid;
+	int				 sol_max_rt;
+	LIST_HEAD(, dh6client_server)	 dhcp_servers;
+};
+
+LIST_HEAD(, dh6client_iface) dh6client_interfaces;
 
 static const char * const log_procnames[] = {
 	"main",
@@ -50,7 +93,7 @@ struct imsgev {
 
 enum imsg_type {
 	IMSG_NONE,
-	IMSG_CTL_SEND_SOLICITATION,
+	IMSG_CTL_DHCP6_SEND,
 	IMSG_SOCKET_IPC,
 	IMSG_ICMP6SOCK,
 	IMSG_DHCP6SOCK,
@@ -92,13 +135,24 @@ struct imsg_dhcp6 {
 };
 
 /* dh6client.c */
-void		imsg_event_add(struct imsgev *);
-int		imsg_compose_event(struct imsgev *, uint16_t, uint32_t, pid_t,
+void		 imsg_event_add(struct imsgev *);
+int		 imsg_compose_event(struct imsgev *, uint16_t, uint32_t, pid_t,
 		    int, void *, uint16_t);
-int		test_parser(void);
+
+/* util.c */
+void		 print_debug(const char *, ...);
+void		 print_hex(uint8_t *,  off_t, size_t);
+
+/* engine.c */
+int		 dh6client_send_solicit(struct dh6client_iface *);
+
+/* test.c */
+int		 test_parser(void);
 
 #ifndef	SMALL
 const char	*sin6_to_str(struct sockaddr_in6 *);
 #else
 #define	sin6_to_str(x...)	""
 #endif	/* SMALL */
+
+#endif /* DH6CLIENT_H */
