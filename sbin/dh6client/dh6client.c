@@ -247,6 +247,7 @@ main(int argc, char *argv[])
 
 	if (bind(dhcp6sock, res->ai_addr, res->ai_addrlen) == -1)
 		fatalx("%s: getaddrinfo: %s", __func__, strerror(errno));
+	freeaddrinfo(res);
 
 	if (pledge("stdio sendfd", NULL) == -1)
 		fatal("pledge");

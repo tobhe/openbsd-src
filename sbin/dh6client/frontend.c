@@ -43,6 +43,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <ifaddrs.h>
+#include <netdb.h>
 
 #include "log.h"
 #include "frontend.h"
@@ -66,7 +67,7 @@ void		 dh6client_recv(int fd, short events, void *arg);
 
 struct imsgev			*iev_main;
 struct imsgev			*iev_engine;
-struct sockaddr_in6		 dst;
+struct sockaddr_in6	*alldhcp6;
 int				 dhcp6sock = -1, ioctlsock;
 
 struct dhcp6_ev {
@@ -99,6 +100,9 @@ frontend(int debug, int verbose)
 {
 	struct event		 ev_sigint, ev_sigterm;
 	struct passwd		*pw;
+	struct addrinfo		 hints, *res;
+	struct sockaddr_in6	 alldhcp6_storage;
+	int			 error;
 
 	log_init(debug, LOG_DAEMON);
 	log_setverbose(verbose);
@@ -123,7 +127,7 @@ frontend(int debug, int verbose)
 	    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
 		fatal("can't drop privileges");
 
-	if (pledge("stdio unix recvfd route", NULL) == -1)
+	if (pledge("stdio unix inet dns recvfd route", NULL) == -1)
 		fatal("pledge");
 
 	event_init();
@@ -147,11 +151,17 @@ frontend(int debug, int verbose)
 	event_add(&iev_main->ev, NULL);
 
 	/* Initialize outgoing message */
-	memset(&dst, 0, sizeof(dst));
-	dst.sin6_family = AF_INET6;
-	dst.sin6_port = 547;
-	if (inet_pton(AF_INET6, ALLDHCP6, &dst.sin6_addr.s6_addr) != 1)
-		fatal("inet_pton");
+	bzero(&hints, sizeof(hints));
+	bzero(&alldhcp6_storage, sizeof(alldhcp6_storage));
+
+	hints.ai_family = AF_INET6;
+	hints.ai_socktype = SOCK_DGRAM;
+	hints.ai_protocol = IPPROTO_UDP;
+	if ((error = getaddrinfo(ALLDHCP6, "547", &hints, &res)) != 0) {
+		fatalx("%s: getaddrinfo: %s", __func__, gai_strerror(error));
+	}
+	memcpy(&alldhcp6_storage, res->ai_addr, res->ai_addrlen);
+	alldhcp6 = (struct sockaddr_in6 *)&alldhcp6_storage;
 
 	event_dispatch();
 
@@ -451,6 +461,7 @@ frontend_send_dhcp6(struct imsg_dhcp6 *imsg)
 	struct cmsghdr		*cm;
 	struct in6_pktinfo	*pi;
 	ssize_t			 len;
+	struct sockaddr_in6	 dst;
 	union {
 		struct cmsghdr	hdr;
 		char		in6buf[CMSG_SPACE(sizeof(struct in6_pktinfo))];
@@ -459,11 +470,14 @@ frontend_send_dhcp6(struct imsg_dhcp6 *imsg)
 	bzero(&msg, sizeof(msg));
 	bzero(&cmsgbuf, sizeof(cmsgbuf));
 
+	dst = *alldhcp6;
+	dst.sin6_scope_id = imsg->if_index;
+
 	iov.iov_base = imsg->packet;
 	iov.iov_len = imsg->len;
 	msg.msg_iov = &iov;
 	msg.msg_iovlen = 1;
-	msg.msg_name = (caddr_t)&dst;
+	msg.msg_name = alldhcp6;
 	msg.msg_namelen = sizeof(struct sockaddr_in6);
 	msg.msg_control = &cmsgbuf;
 	msg.msg_controllen = sizeof(cmsgbuf.in6buf);
