@@ -23,29 +23,24 @@
 #ifndef DH6CLIENT_H
 #define DH6CLIENT_H
 
-#include <netinet/in.h>
-#include <net/if.h>
-#include <netinet/if_ether.h>
 #include <sys/types.h>
 #include <sys/queue.h>
 #include <sys/uio.h>
+#include <sys/cdefs.h>
 
+#include <netinet/in.h>
+#include <net/if.h>
+#include <netinet/if_ether.h>
 
+#include <stdarg.h>
 #include <stdint.h>
 #include <imsg.h>
 #include "event.h"
-
-
 #include "dhcp6.h"
 
-#define	DH6CLIENT_SOCKET		"/dev/dh6client.sock"
-#define DH6CLIENT_USER		"_slaacd"
-#define DH6CLIENT_RTA_LABEL	"dh6client"
-
-#define DH6CLIENT_SOIIKEY_LEN	16
-
-/* MAXDNAME from arpa/namesr.h */
-#define DH6CLIENT_MAX_DNSSL	1025
+#define	DH6CLIENT_SOCKET	"/dev/dh6client.sock"
+#define	DH6CLIENT_USER		"_slaacd"
+#define	DH6CLIENT_RTA_LABEL	"dh6client"
 
 #define	IMSG_DATA_SIZE(imsg)	((imsg).hdr.len - IMSG_HEADER_SIZE)
 
@@ -75,7 +70,6 @@ struct dh6client_iface {
 	int				 sol_max_rt;
 	LIST_HEAD(, dh6client_server)	 dhcp_servers;
 };
-
 LIST_HEAD(, dh6client_iface) dh6client_interfaces;
 
 static const char * const log_procnames[] = {
@@ -93,26 +87,12 @@ struct imsgev {
 
 enum imsg_type {
 	IMSG_NONE,
-	IMSG_DHCP6_SEND,
+	IMSG_DHCP6,
 	IMSG_SOCKET_IPC,
-	IMSG_ICMP6SOCK,
 	IMSG_DHCP6SOCK,
-	IMSG_ROUTESOCK,
-	IMSG_CONTROLFD,
+	IMSG_UPDATE_IF,
 	IMSG_STARTUP,
 	IMSG_STARTUP_DONE,
-	IMSG_UPDATE_IF,
-	IMSG_REMOVE_IF,
-	IMSG_DHCP6,
-	IMSG_PROPOSAL,
-	IMSG_PROPOSAL_ACK,
-	IMSG_CONFIGURE_ADDRESS,
-	IMSG_DEL_ADDRESS,
-	IMSG_DEL_ROUTE,
-	IMSG_FAKE_ACK,
-	IMSG_CONFIGURE_DFR,
-	IMSG_WITHDRAW_DFR,
-	IMSG_DUP_ADDRESS,
 };
 
 enum {
@@ -144,15 +124,41 @@ void		 print_debug(const char *, ...);
 void		 print_hex(uint8_t *,  off_t, size_t);
 
 /* engine.c */
+void		 engine(int, int);
+int		 engine_imsg_compose_frontend(int, pid_t, void *, uint16_t);
 int		 dh6client_send_solicit(struct dh6client_iface *);
+
+/* frontend.c */
+void		 frontend(int, int);
+void		 frontend_dispatch_main(int, short, void *);
+void		 frontend_dispatch_engine(int, short, void *);
+int		 frontend_imsg_compose_main(int, pid_t, void *, uint16_t);
+int		 frontend_imsg_compose_engine(int, uint32_t, pid_t, void *,
+		     uint16_t);
+
+/* log.c */
+void	log_init(int, int);
+void	log_procinit(const char *);
+void	log_setverbose(int);
+int	log_getverbose(void);
+void	log_warn(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+void	log_warnx(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+void	log_info(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+void	log_debug(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+void	logit(int, const char *, ...)
+	    __attribute__((__format__ (printf, 2, 3)));
+void	vlog(int, const char *, va_list)
+	    __attribute__((__format__ (printf, 2, 0)));
+__dead void fatal(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+__dead void fatalx(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
 
 /* test.c */
 int		 test_parser(void);
-
-#ifndef	SMALL
-const char	*sin6_to_str(struct sockaddr_in6 *);
-#else
-#define	sin6_to_str(x...)	""
-#endif	/* SMALL */
 
 #endif /* DH6CLIENT_H */

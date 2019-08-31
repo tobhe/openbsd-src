@@ -18,7 +18,6 @@ test_parser(void)
 	struct ibuf		*buf;
 	ssize_t			 len;
 	struct dhcp6_options	*opts;
-	uint16_t		 time;
 
 	buf = ibuf_open(1500);
 
@@ -43,36 +42,7 @@ test_parser(void)
 	msg = dhcp6_msg_parse(ibuf_seek(buf, 0, 0), len);
 	printf("Parse_result\n");
 	dhcp6_msg_print(msg);
-	// dhcp6_msg_free(msg);
-	// bzero(ibuf_seek(buf, 0, 0), ibuf_size(buf));
-
-	// msg = dhcp6_msg_init(1);
-
-	// /* Mandatory client ID */
-	// if (dhcp6_options_add_option(&msg->msg_options, DHCP6_OPTION_CLIENTID,
-	//     "asdasd123123123as", sizeof("asdasd123123123as")) == -1)
-	// 	return (-1);
-
-	// /* Mandatory elapsed time option */
-	// time = 0;
-	// if (dhcp6_options_add_option(&msg->msg_options, DHCP6_OPTION_ELAPSED_TIME,
-	//     &time, sizeof(time)) == -1)
-	// 	return (-1);
-
-	// /* Request Address  */
-	// if (dhcp6_options_add_option(&msg->msg_options, DHCP6_OPTION_ELAPSED_TIME,
-	//     &time, sizeof(time)) == -1)
-	// 	return (-1);
-	// dhcp6_msg_print(msg);
-	// dhcp6_options_get_length(&msg->msg_options);
-	// len = dhcp6_msg_serialize(msg, ibuf_seek(buf, 0, 0), ibuf_size(buf));
-
-	// /* Check correctness by parsing */
-	// if (dhcp6_msg_parse(ibuf_seek(buf,0,0), ibuf_size(buf)) == NULL)
-	//  	return (-1);
-	// dhcp6_msg_print(msg);
-	// dhcp6_msg_free(msg);
-	// bzero(ibuf_seek(buf, 0, 0), ibuf_size(buf));
+	dhcp6_msg_free(msg);
 
 	return 0;
 }

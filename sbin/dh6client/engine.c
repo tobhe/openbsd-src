@@ -71,10 +71,8 @@
 #include <unistd.h>
 #include <inttypes.h>
 
-#include "log.h"
 #include "dh6client.h"
 #include "dhcp6.h"
-#include "engine.h"
 
 const char* if_state_name[] = {
 	"IF_DOWN",
@@ -422,7 +420,7 @@ dh6client_send_solicit(struct dh6client_iface *iface)
 	print_hex(imsg.packet, 0, imsg.len);
 
 	imsg.if_index = iface->if_index;
-	engine_imsg_compose_frontend(IMSG_DHCP6_SEND, 0,
+	engine_imsg_compose_frontend(IMSG_DHCP6, 0,
 	    &imsg, sizeof(imsg));
 	return (0);
 }

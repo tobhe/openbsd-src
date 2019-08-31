@@ -19,11 +19,11 @@
 #ifndef DHCP6_H
 #define DHCP6_H
 
-#include <arpa/inet.h>
+#include <sys/queue.h>
 #include <sys/socket.h>
+#include <arpa/inet.h>
 #include <net/if.h>
 #include <netinet/if_ether.h>
-#include <sys/queue.h>
 
 struct dhcp6_iana {
 	uint32_t	 iana_iaid;

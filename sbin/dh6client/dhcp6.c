@@ -1,3 +1,21 @@
+/*	$OpenBSD $	*/
+
+/*
+ * Copyright (c) 2019 Tobias Heider <tobhe@openbsd.org>
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
 #include <sys/types.h>
 #include <sys/syslog.h>
 #include <sys/queue.h>
@@ -18,7 +36,6 @@
 
 #include "dh6client.h"
 #include "dhcp6.h"
-#include "log.h"
 
 #define PARSE(TO, FROM, LENGTH, SIZE) do { \
 	memcpy(TO, FROM, SIZE); \
@@ -26,7 +43,12 @@
 	LENGTH -= SIZE; \
 	} while (0)
 
-int	buf_write(void **to, void *from, size_t from_len, size_t *len);
+static int	buf_write(void **to, void *from, size_t from_len, size_t *len);
+
+static struct dhcp6_options *
+		dhcp6_options_parse(struct dhcp6_options *, uint8_t*, size_t);
+static ssize_t	dhcp6_options_serialize(uint8_t *, struct dhcp6_options *);
+
 
 int
 buf_write(void **to, void *from, size_t from_len, size_t *len)
@@ -37,11 +59,6 @@ buf_write(void **to, void *from, size_t from_len, size_t *len)
 	*len += from_len;
 	return (0);
 }
-
-
-struct dhcp6_options *
-		dhcp6_options_parse(struct dhcp6_options *, uint8_t*, size_t);
-ssize_t		dhcp6_options_serialize(uint8_t *, struct dhcp6_options *);
 
 /*
  * Print contents of a DHCPv6 message
@@ -178,6 +195,9 @@ dhcp6_options_add_iana(struct dhcp6_options *opts, uint32_t id, uint32_t t1,
 	return (&opt->option_options);
 }
 
+/*
+ * Calculate and store length of a chain of options recursively.
+ */
 size_t
 dhcp6_options_get_length(struct dhcp6_options *opts)
 {
@@ -194,11 +214,13 @@ dhcp6_options_get_length(struct dhcp6_options *opts)
 	return len;
 }
 
+/*
+ * Write DHCP6 msg to buffer of size length.
+ */
 ssize_t
 dhcp6_msg_serialize(struct dhcp6_msg *msg, uint8_t *buf, ssize_t length)
 {
-	ssize_t			 w_len = 0, opt_len, rlen;
-	uint8_t			*obuf = buf;
+	ssize_t			 total_len = 0, opt_len, rlen;
 
 	/* Calculate list lengths */
 	if ((rlen = dhcp6_options_get_length(&msg->msg_options)) > length) {
@@ -207,21 +229,19 @@ dhcp6_msg_serialize(struct dhcp6_msg *msg, uint8_t *buf, ssize_t length)
 	}
 
 	/* Message Header */
-	if (memcpy(buf, &msg->msg_type, sizeof(msg->msg_type)) == NULL)
+	if (buf_write((void**)&buf, &msg->msg_type, sizeof(msg->msg_type),
+	    &total_len) == -1)
 		return (-1);
-	buf += sizeof(msg->msg_type);
-	w_len += sizeof(msg->msg_type);
 
-	if (memcpy(buf, &msg->msg_transaction_id, sizeof(msg->msg_transaction_id)) == NULL)
+	if (buf_write((void**)&buf, &msg->msg_transaction_id,
+	    sizeof(msg->msg_transaction_id), &total_len) == -1)
 		return (-1);
-	buf += sizeof(msg->msg_transaction_id);
-	w_len += sizeof(msg->msg_transaction_id);
 
 	/* Options */
 	if ((opt_len = dhcp6_options_serialize(buf, &msg->msg_options)) == -1)
 		return (-1);
 
-	return (opt_len + w_len);
+	return (opt_len + total_len);
 }
 
 ssize_t
@@ -235,12 +255,12 @@ dhcp6_options_serialize(uint8_t *buf, struct dhcp6_options *opts)
 	TAILQ_FOREACH(opt, opts, option_entry) {
 		o_len = 0;
 		h = htons(opt->option_code);
-		if (buf_write(&buf, &h, sizeof(h), &o_len) == -1)
+		if (buf_write((void**)&buf, &h, sizeof(h), &o_len) == -1)
 			return (-1);
 		h = htons(opt->option_length);
-		if (buf_write(&buf, &h, sizeof(h), &o_len) == -1)
+		if (buf_write((void**)&buf, &h, sizeof(h), &o_len) == -1)
 			return (-1);
-		if (buf_write(&buf, opt->option_data, opt->option_data_len,
+		if (buf_write((void**)&buf, opt->option_data, opt->option_data_len,
 		    &o_len) == -1)
 			return (-1);
 

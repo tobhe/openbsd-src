@@ -24,7 +24,7 @@
 #include <errno.h>
 #include <time.h>
 
-#include "log.h"
+#include "dh6client.h"
 
 static int		 debug;
 static int		 verbose;

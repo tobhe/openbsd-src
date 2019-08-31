@@ -42,9 +42,6 @@
 #include <pwd.h>
 
 #include "dh6client.h"
-#include "log.h"
-#include "frontend.h"
-#include "engine.h"
 
 __dead void	usage(void);
 __dead void	main_shutdown(void);

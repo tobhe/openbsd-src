@@ -45,8 +45,6 @@
 #include <ifaddrs.h>
 #include <netdb.h>
 
-#include "log.h"
-#include "frontend.h"
 #include "dh6client.h"
 #include "dhcp6.h"
 
@@ -67,8 +65,10 @@ void		 dh6client_recv(int fd, short events, void *arg);
 
 struct imsgev			*iev_main;
 struct imsgev			*iev_engine;
-struct sockaddr_in6	*alldhcp6;
+struct sockaddr_in6		*alldhcp6;
 int				 dhcp6sock = -1, ioctlsock;
+struct msghdr			 sndmhdr;
+struct iovec			 sndiov[2];
 
 struct dhcp6_ev {
 	struct event		 ev;
@@ -102,6 +102,8 @@ frontend(int debug, int verbose)
 	struct passwd		*pw;
 	struct addrinfo		 hints, *res;
 	struct sockaddr_in6	 alldhcp6_storage;
+	size_t			 sndcmsgbuflen;
+	uint8_t			*sndcmsgbuf = NULL;
 	int			 error;
 
 	log_init(debug, LOG_DAEMON);
@@ -162,6 +164,17 @@ frontend(int debug, int verbose)
 	}
 	memcpy(&alldhcp6_storage, res->ai_addr, res->ai_addrlen);
 	alldhcp6 = (struct sockaddr_in6 *)&alldhcp6_storage;
+
+	sndcmsgbuflen = CMSG_SPACE(sizeof(struct in6_pktinfo)) +
+	    CMSG_SPACE(sizeof(int));
+	if ((sndcmsgbuf = malloc(sndcmsgbuflen)) == NULL)
+		fatal("%s", __func__);
+
+	sndmhdr.msg_namelen = sizeof(struct sockaddr_in6);
+	sndmhdr.msg_iov = sndiov;
+	sndmhdr.msg_iovlen = 1;
+	sndmhdr.msg_control = sndcmsgbuf;
+	sndmhdr.msg_controllen = sndcmsgbuflen;
 
 	event_dispatch();
 
@@ -318,7 +331,7 @@ frontend_dispatch_engine(int fd, short event, void *bula)
 			break;
 
 		switch (imsg.hdr.type) {
-		case IMSG_DHCP6_SEND:
+		case IMSG_DHCP6:
 			if (IMSG_DATA_SIZE(imsg) != sizeof(dhcp6))
 				fatalx("%s: IMSG_DHCP6 wrong length: %lu",
 				    __func__, IMSG_DATA_SIZE(imsg));
@@ -456,33 +469,16 @@ frontend_startup(void)
 void
 frontend_send_dhcp6(struct imsg_dhcp6 *imsg)
 {
-	struct iovec		 iov;
-	struct msghdr		 msg;
 	struct cmsghdr		*cm;
 	struct in6_pktinfo	*pi;
 	ssize_t			 len;
-	struct sockaddr_in6	 dst;
-	union {
-		struct cmsghdr	hdr;
-		char		in6buf[CMSG_SPACE(sizeof(struct in6_pktinfo))];
-	} cmsgbuf;
+	int			 hoplimit = 255;
 
-	bzero(&msg, sizeof(msg));
-	bzero(&cmsgbuf, sizeof(cmsgbuf));
+	sndmhdr.msg_name = alldhcp6;
+	sndmhdr.msg_iov[0].iov_base = imsg->packet;
+	sndmhdr.msg_iov[0].iov_len = imsg->len;
 
-	dst = *alldhcp6;
-	dst.sin6_scope_id = imsg->if_index;
-
-	iov.iov_base = imsg->packet;
-	iov.iov_len = imsg->len;
-	msg.msg_iov = &iov;
-	msg.msg_iovlen = 1;
-	msg.msg_name = alldhcp6;
-	msg.msg_namelen = sizeof(struct sockaddr_in6);
-	msg.msg_control = &cmsgbuf;
-	msg.msg_controllen = sizeof(cmsgbuf.in6buf);
-
-	cm = CMSG_FIRSTHDR(&msg);
+	cm = CMSG_FIRSTHDR(&sndmhdr);
 	/* specify the outgoing interface */
 	cm->cmsg_level = IPPROTO_IPV6;
 	cm->cmsg_type = IPV6_PKTINFO;
@@ -490,9 +486,16 @@ frontend_send_dhcp6(struct imsg_dhcp6 *imsg)
 	pi = (struct in6_pktinfo *)CMSG_DATA(cm);
 	pi->ipi6_ifindex = imsg->if_index;
 
+	/* specify the hop limit of the packet */
+	cm = CMSG_NXTHDR(&sndmhdr, cm);
+	cm->cmsg_level = IPPROTO_IPV6;
+	cm->cmsg_type = IPV6_HOPLIMIT;
+	cm->cmsg_len = CMSG_LEN(sizeof(int));
+	memcpy(CMSG_DATA(cm), &hoplimit, sizeof(int));
+
 	log_debug("send RA on %d", imsg->if_index);
 
-	len = sendmsg(dhcp6sock, &msg, 0);
+	len = sendmsg(dhcp6sock, &sndmhdr, 0);
 	if (len == -1)
 		log_warn("sendmsg on %d", imsg->if_index);
 }
