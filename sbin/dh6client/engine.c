@@ -381,7 +381,7 @@ int
 dh6client_send_solicit(struct dh6client_iface *iface)
 {
 	struct dhcp6_msg	*msg;
-	struct ibuf		*buf;
+	struct imsg_dhcp6	 imsg;
 	uint16_t		 time;
 
 	if ((msg = dhcp6_msg_init(DHCP6_MSG_TYPE_SOLICIT)) == NULL)
@@ -411,17 +411,19 @@ dh6client_send_solicit(struct dh6client_iface *iface)
 	if (dhcp6_options_add_iana(&msg->msg_options, 0, 0, 0) == NULL)
 		return (-1);
 
-	buf = dhcp6_msg_serialize(msg);
+	if ((imsg.len = dhcp6_msg_serialize(msg, imsg.packet, 1500)) == -1)
+		return (-1);
 
 	/* Check correctness by parsing */
-	if (dhcp6_msg_parse(ibuf_seek(buf,0,0), ibuf_size(buf)) == NULL)
+	if (dhcp6_msg_parse(imsg.packet, imsg.len) == NULL)
 	 	return (-1);
 
 	dhcp6_msg_print(msg);
-	print_hex(ibuf_seek(buf, 0, 0), 0, ibuf_size(buf));
+	print_hex(imsg.packet, 0, imsg.len);
 
-	engine_imsg_compose_frontend(IMSG_CTL_DHCP6_SEND,
-	    ibuf_seek(buf, 0, 0), ibuf_size(buf));
+	imsg.if_index = iface->if_index;
+	engine_imsg_compose_frontend(IMSG_DHCP6_SEND, 0,
+	    &imsg, sizeof(imsg));
 	return (0);
 }
 

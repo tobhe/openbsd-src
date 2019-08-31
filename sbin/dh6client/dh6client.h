@@ -93,7 +93,7 @@ struct imsgev {
 
 enum imsg_type {
 	IMSG_NONE,
-	IMSG_CTL_DHCP6_SEND,
+	IMSG_DHCP6_SEND,
 	IMSG_SOCKET_IPC,
 	IMSG_ICMP6SOCK,
 	IMSG_DHCP6SOCK,

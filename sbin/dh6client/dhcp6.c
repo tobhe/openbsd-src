@@ -16,6 +16,7 @@
 #include <stdint.h>
 #include <imsg.h>
 
+#include "dh6client.h"
 #include "dhcp6.h"
 #include "log.h"
 
@@ -25,9 +26,22 @@
 	LENGTH -= SIZE; \
 	} while (0)
 
-struct ibuf *dhcp6_options_serialize(struct ibuf *, struct dhcp6_options *);
+int	buf_write(void **to, void *from, size_t from_len, size_t *len);
+
+int
+buf_write(void **to, void *from, size_t from_len, size_t *len)
+{
+	if (memcpy(*to, from, from_len) == NULL)
+		return (-1);
+	*to = (uint8_t*)*to + from_len;
+	*len += from_len;
+	return (0);
+}
+
+
 struct dhcp6_options *
-    dhcp6_options_parse(struct dhcp6_options *, uint8_t*, size_t);
+		dhcp6_options_parse(struct dhcp6_options *, uint8_t*, size_t);
+ssize_t		dhcp6_options_serialize(uint8_t *, struct dhcp6_options *);
 
 /*
  * Print contents of a DHCPv6 message
@@ -180,60 +194,65 @@ dhcp6_options_get_length(struct dhcp6_options *opts)
 	return len;
 }
 
-#define DH6CLIENT_MSGBUF_MAX	(8192)
-
-struct ibuf *
-dhcp6_msg_serialize(struct dhcp6_msg *msg)
+ssize_t
+dhcp6_msg_serialize(struct dhcp6_msg *msg, uint8_t *buf, ssize_t length)
 {
-	struct ibuf		*buf;
-
- 	if ((buf = ibuf_dynamic(0, DH6CLIENT_MSGBUF_MAX)) == NULL)
- 		return (NULL);
-	explicit_bzero(ibuf_seek(buf, 0, 0), buf->wpos);
-
-	/* Message Header */
-	if (ibuf_add(buf, &msg->msg_type, sizeof(msg->msg_type)) == -1)
-		goto err;
-	if (ibuf_add(buf, &msg->msg_transaction_id,
-	    sizeof(msg->msg_transaction_id)) == -1)
-		goto err;
+	ssize_t			 w_len = 0, opt_len, rlen;
+	uint8_t			*obuf = buf;
 
 	/* Calculate list lengths */
-	dhcp6_options_get_length(&msg->msg_options);
+	if ((rlen = dhcp6_options_get_length(&msg->msg_options)) > length) {
+		printf("size_mismatch: %ld, %zu\n", rlen, length);
+		return (-1);
+	}
+
+	/* Message Header */
+	if (memcpy(buf, &msg->msg_type, sizeof(msg->msg_type)) == NULL)
+		return (-1);
+	buf += sizeof(msg->msg_type);
+	w_len += sizeof(msg->msg_type);
+
+	if (memcpy(buf, &msg->msg_transaction_id, sizeof(msg->msg_transaction_id)) == NULL)
+		return (-1);
+	buf += sizeof(msg->msg_transaction_id);
+	w_len += sizeof(msg->msg_transaction_id);
 
 	/* Options */
-	return (dhcp6_options_serialize(buf, &msg->msg_options));
- err:
-	ibuf_free(buf);
-	return (NULL);
+	if ((opt_len = dhcp6_options_serialize(buf, &msg->msg_options)) == -1)
+		return (-1);
+
+	return (opt_len + w_len);
 }
 
-struct ibuf *
-dhcp6_options_serialize(struct ibuf *buf, struct dhcp6_options *opts)
+ssize_t
+dhcp6_options_serialize(uint8_t *buf, struct dhcp6_options *opts)
 {
 	struct dhcp6_option	*opt;
 	uint16_t		 h;
+	ssize_t			 w_len = 0, o_len, t_len;
 
 	/* Options */
 	TAILQ_FOREACH(opt, opts, option_entry) {
+		o_len = 0;
 		h = htons(opt->option_code);
-		if (ibuf_add(buf, &h, sizeof(h)) == -1)
-			goto err;
+		if (buf_write(&buf, &h, sizeof(h), &o_len) == -1)
+			return (-1);
 		h = htons(opt->option_length);
-		if (ibuf_add(buf, &h, sizeof(h)) == -1)
-			goto err;
-		if (ibuf_add(buf, opt->option_data, opt->option_data_len) == -1)
-			goto err;
+		if (buf_write(&buf, &h, sizeof(h), &o_len) == -1)
+			return (-1);
+		if (buf_write(&buf, opt->option_data, opt->option_data_len,
+		    &o_len) == -1)
+			return (-1);
 
 		if (!TAILQ_EMPTY(&opt->option_options)){
-			if (dhcp6_options_serialize(buf, &opt->option_options) == NULL)
-				goto err;
+			t_len = dhcp6_options_serialize(buf,
+			    &opt->option_options);
+			buf += t_len;
+			o_len += t_len;
 		}
+		w_len += o_len;
 	}
-	return (buf);
- err:
-	ibuf_free(buf);
-	return (NULL);
+	return (w_len);
 }
 
 struct dhcp6_msg *

@@ -27,6 +27,7 @@
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
 
+#include <netdb.h>
 #include <unistd.h>
 #include <string.h>
 #include <err.h>
@@ -105,7 +106,8 @@ main(int argc, char *argv[])
 	int			 pipe_main2frontend[2];
 	int			 pipe_main2engine[2];
 	int			 ioctl_sock;
-	int			 dhcp6sock, on = 1;
+	int			 dhcp6sock, on = 1, error;
+	struct addrinfo		 hints, *res;
 	char			*csock = DH6CLIENT_SOCKET;
 
 	log_init(1, LOG_DAEMON);	/* Log to stderr until daemonized. */
@@ -217,13 +219,34 @@ main(int argc, char *argv[])
 	if ((ioctl_sock = socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, 0)) < 0)
 		fatal("socket");
 
-	if ((dhcp6sock = socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC,
-	    IPPROTO_UDP)) < 0)
+	/* DHCP6 Socket */
+	bzero(&hints, sizeof(hints));
+	hints.ai_family = AF_INET6;
+	hints.ai_socktype = SOCK_DGRAM;
+	hints.ai_protocol = IPPROTO_UDP;
+	hints.ai_flags	= AI_PASSIVE;
+	if ((error = getaddrinfo(NULL, "546", &hints, &res)) == -1)
+		fatalx("%s: getaddrinfo: %s", __func__, gai_strerror(error));
+	res->ai_socktype |= SOCK_CLOEXEC;
+
+	if ((dhcp6sock = socket(res->ai_family, res->ai_socktype,
+	    res->ai_protocol)) == -1)
 		fatal("DHCPv6 socket");
 
+	if (setsockopt(dhcp6sock, SOL_SOCKET, SO_REUSEPORT, &on,
+	    sizeof(on)) == -1)
+		fatal("SO_REUSEPORT");
+
 	if (setsockopt(dhcp6sock, IPPROTO_IPV6, IPV6_MULTICAST_LOOP, &on,
-	    sizeof(on)) < 0)
+	    sizeof(on)) == -1)
 		fatal("IPV6_MULTICAST_LOOP");
+
+	if (setsockopt(dhcp6sock, IPPROTO_IPV6, IPV6_V6ONLY, &on,
+	    sizeof(on)) == -1)
+		fatal("IPV6_V6ONLY");
+
+	if (bind(dhcp6sock, res->ai_addr, res->ai_addrlen) == -1)
+		fatalx("%s: getaddrinfo: %s", __func__, strerror(errno));
 
 	if (pledge("stdio sendfd", NULL) == -1)
 		fatal("pledge");
