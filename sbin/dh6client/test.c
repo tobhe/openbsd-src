@@ -31,11 +31,9 @@ test_parser(void)
 	dhcp6_options_add_option(opts, 2, "lolwut", sizeof("lolwut"));
 	dhcp6_options_add_option(&msg->msg_options, 2, "lolwut", sizeof("lolwut"));
 	dhcp6_msg_print(msg);
-	dhcp6_options_get_length(&msg->msg_options);
-	dhcp6_msg_print(msg);
-
 	if ((len = dhcp6_msg_serialize(msg, ibuf_seek(buf, 0, 0), ibuf_left(buf))) == -1)
 		return (-1);
+	dhcp6_msg_print(msg);
 	dhcp6_msg_free(msg);
 	print_hex(ibuf_seek(buf, 0, 0), 0, len);
 

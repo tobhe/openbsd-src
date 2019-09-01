@@ -37,17 +37,14 @@
 #include "dh6client.h"
 #include "dhcp6.h"
 
-#define PARSE(TO, FROM, LENGTH, SIZE) do { \
-	memcpy(TO, FROM, SIZE); \
-	FROM += SIZE; \
-	LENGTH -= SIZE; \
-	} while (0)
-
 static int	buf_write(void **to, void *from, size_t from_len, size_t *len);
+static int	buf_get(void *to, void **from, size_t to_len, size_t *len);
 
 static struct dhcp6_options *
-		dhcp6_options_parse(struct dhcp6_options *, uint8_t*, size_t);
-static ssize_t	dhcp6_options_serialize(uint8_t *, struct dhcp6_options *);
+		dhcp6_options_parse(struct dhcp6_options *, uint8_t*, size_t, int);
+static ssize_t	dhcp6_options_serialize(uint8_t *, struct dhcp6_options *, int);
+static size_t	dhcp6_options_get_length(struct dhcp6_options *, int);
+static void	dhcp6_options_free(struct dhcp6_options *, int);
 
 
 int
@@ -57,6 +54,16 @@ buf_write(void **to, void *from, size_t from_len, size_t *len)
 		return (-1);
 	*to = (uint8_t*)*to + from_len;
 	*len += from_len;
+	return (0);
+}
+
+int
+buf_get(void *to, void **from, size_t to_len, size_t *len)
+{
+	if (memcpy(to, *from, to_len) == NULL)
+		return (-1);
+	*from = (uint8_t*)*from + to_len;
+	*len -= to_len;
 	return (0);
 }
 
@@ -121,18 +128,19 @@ dhcp6_msg_init(uint8_t type)
 void
 dhcp6_msg_free(struct dhcp6_msg *msg)
 {
-	dhcp6_options_free(&msg->msg_options);
+	dhcp6_options_free(&msg->msg_options, 0);
 	free(msg);
 }
 
 void
-dhcp6_options_free(struct dhcp6_options *opts)
+dhcp6_options_free(struct dhcp6_options *opts, int depth)
 {
 	struct dhcp6_option	*opt, *tmp;
 
 	TAILQ_FOREACH_SAFE(opt, opts, option_entry, tmp) {
-		if (!TAILQ_EMPTY(&opt->option_options))
-			dhcp6_options_free(&opt->option_options);
+		/* Limit recursion depth to 2. */
+		if (!TAILQ_EMPTY(&opt->option_options) && ++depth < 2)
+			dhcp6_options_free(&opt->option_options, depth);
 		if (opt->option_data != NULL) {
 			free(opt->option_data);
 			opt->option_data = NULL;
@@ -199,15 +207,16 @@ dhcp6_options_add_iana(struct dhcp6_options *opts, uint32_t id, uint32_t t1,
  * Calculate and store length of a chain of options recursively.
  */
 size_t
-dhcp6_options_get_length(struct dhcp6_options *opts)
+dhcp6_options_get_length(struct dhcp6_options *opts, int depth)
 {
 	struct dhcp6_option	*opt;
 	size_t			 len = 0, olen;
 
 	TAILQ_FOREACH(opt, opts, option_entry) {
 		olen = 0;
-		if (!TAILQ_EMPTY(&opt->option_options))
-			olen += dhcp6_options_get_length(&opt->option_options);
+		/* Limit depth to 2 to prevent stack exhaustion */
+		if (!TAILQ_EMPTY(&opt->option_options) && ++depth < 2)
+			olen += dhcp6_options_get_length(&opt->option_options, depth);
 		opt->option_length = opt->option_data_len + olen;
 		len += opt->option_length + 4;
 	}
@@ -223,7 +232,7 @@ dhcp6_msg_serialize(struct dhcp6_msg *msg, uint8_t *buf, ssize_t length)
 	ssize_t			 total_len = 0, opt_len, rlen;
 
 	/* Calculate list lengths */
-	if ((rlen = dhcp6_options_get_length(&msg->msg_options)) > length) {
+	if ((rlen = dhcp6_options_get_length(&msg->msg_options, 0)) > length) {
 		printf("size_mismatch: %ld, %zu\n", rlen, length);
 		return (-1);
 	}
@@ -238,14 +247,14 @@ dhcp6_msg_serialize(struct dhcp6_msg *msg, uint8_t *buf, ssize_t length)
 		return (-1);
 
 	/* Options */
-	if ((opt_len = dhcp6_options_serialize(buf, &msg->msg_options)) == -1)
+	if ((opt_len = dhcp6_options_serialize(buf, &msg->msg_options, 0)) == -1)
 		return (-1);
 
 	return (opt_len + total_len);
 }
 
 ssize_t
-dhcp6_options_serialize(uint8_t *buf, struct dhcp6_options *opts)
+dhcp6_options_serialize(uint8_t *buf, struct dhcp6_options *opts, int depth)
 {
 	struct dhcp6_option	*opt;
 	uint16_t		 h;
@@ -264,9 +273,9 @@ dhcp6_options_serialize(uint8_t *buf, struct dhcp6_options *opts)
 		    &o_len) == -1)
 			return (-1);
 
-		if (!TAILQ_EMPTY(&opt->option_options)){
+		if (!TAILQ_EMPTY(&opt->option_options) && ++depth < 2){
 			t_len = dhcp6_options_serialize(buf,
-			    &opt->option_options);
+			    &opt->option_options, depth);
 			buf += t_len;
 			o_len += t_len;
 		}
@@ -284,11 +293,11 @@ dhcp6_msg_parse(uint8_t* data, size_t length)
 	TAILQ_INIT(&msg->msg_options);
 
 	/* Header */
-	PARSE(&msg->msg_type, data, length, sizeof(msg->msg_type));
-	PARSE(msg->msg_transaction_id, data, length, sizeof(msg->msg_transaction_id));
+	buf_get(&msg->msg_type, (void **)&data, sizeof(msg->msg_type), &length);
+	buf_get(&msg->msg_transaction_id, (void **)&data, sizeof(msg->msg_transaction_id), &length);
 
 	/* Options */
-	if (dhcp6_options_parse(&msg->msg_options, data, length) == NULL) {
+	if (dhcp6_options_parse(&msg->msg_options, data, length, 0) == NULL) {
 		printf("Failed to parse options.\n");
 		free(msg);
 		return (NULL);
@@ -297,7 +306,8 @@ dhcp6_msg_parse(uint8_t* data, size_t length)
 }
 
 struct dhcp6_options *
-dhcp6_options_parse(struct dhcp6_options *opts, uint8_t* data, size_t length)
+dhcp6_options_parse(struct dhcp6_options *opts, uint8_t* data, size_t length,
+    int depth)
 {
 	struct dhcp6_option	*opt;
 	size_t			 olen;
@@ -309,10 +319,10 @@ dhcp6_options_parse(struct dhcp6_options *opts, uint8_t* data, size_t length)
 		}
 		TAILQ_INIT(&opt->option_options);
 
-		PARSE(&opt->option_code, data, length, sizeof(opt->option_code));
+		buf_get(&opt->option_code, (void **)&data, sizeof(opt->option_code), &length);
 		opt->option_code = ntohs(opt->option_code);
 
-		PARSE(&opt->option_length, data, length, sizeof(opt->option_length));
+		buf_get(&opt->option_length, (void **)&data, sizeof(opt->option_length), &length);
 		opt->option_length = ntohs(opt->option_length);
 
 		switch(opt->option_code) {
@@ -320,10 +330,13 @@ dhcp6_options_parse(struct dhcp6_options *opts, uint8_t* data, size_t length)
 			olen = 3 * sizeof(uint32_t);
 			opt->option_data = calloc(1, olen);
 			opt->option_data_len = olen;
-			PARSE(opt->option_data, data, length, olen);
+			buf_get(opt->option_data, (void **)&data, olen, &length);
 			if (opt->option_length - olen > 0) {
+				/* Recursion depth limited to 2.*/
+				if (++depth > 1)
+					return NULL;
 				dhcp6_options_parse(&opt->option_options,
-				    data, opt->option_length - olen);
+				    data, opt->option_length - olen, depth);
 				length -= opt->option_length - olen;
 				data += opt->option_length - olen;
 			}
@@ -332,7 +345,8 @@ dhcp6_options_parse(struct dhcp6_options *opts, uint8_t* data, size_t length)
 			if (opt->option_length) {
 				opt->option_data = calloc(1, opt->option_length);
 				opt->option_data_len = opt->option_length;
-				PARSE(opt->option_data, data, length, opt->option_length);
+				buf_get(opt->option_data, (void **)&data,
+				    opt->option_length, &length);
 			}
 			break;
 		}

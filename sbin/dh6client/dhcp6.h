@@ -84,14 +84,12 @@ int			 dhcp6_options_add_option(struct dhcp6_options *, int,
 			    void *, size_t);
 struct dhcp6_options	*dhcp6_options_add_iana(struct dhcp6_options *, uint32_t id,
 			    uint32_t t1, uint32_t t2);
-size_t			 dhcp6_options_get_length(struct dhcp6_options *);
 ssize_t			 dhcp6_msg_serialize(struct dhcp6_msg *, uint8_t *,
 			    ssize_t);
 struct dhcp6_msg	*dhcp6_msg_init(uint8_t);
 struct dhcp6_msg	*dhcp6_msg_parse(uint8_t*, size_t);
 void			 dhcp6_msg_print(struct dhcp6_msg *);
 void			 dhcp6_msg_free(struct dhcp6_msg *);
-void			 dhcp6_options_free(struct dhcp6_options *);
 int			 dhcp6_get_duid(struct ether_addr *, uint8_t,
 			    struct dhcp6_duid *);
 
