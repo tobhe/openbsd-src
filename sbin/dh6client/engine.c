@@ -93,7 +93,7 @@ void			 engine_dispatch_frontend(int, short, void *);
 
 void			 iface_timeout(int, short, void *);
 struct dh6client_iface	*get_dh6client_iface_by_id(uint32_t);
-void			 dh6client_parse(struct imsg_dhcp6 *);
+int			 dh6client_parse(struct imsg_dhcp6 *);
 
 struct imsgev		*iev_frontend;
 struct imsgev		*iev_main;
@@ -313,7 +313,6 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 
 		switch (imsg.hdr.type) {
 		case IMSG_DHCP6:
-			log_info("Engine: received dhcp6...");
 			if (IMSG_DATA_SIZE(imsg) != sizeof(dhcp6))
 				fatalx("%s: IMSG_DHCP6 wrong length: %lu",
 				    __func__, IMSG_DATA_SIZE(imsg));
@@ -321,7 +320,6 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 			dh6client_parse(&dhcp6);
 			break;
 		case IMSG_UPDATE_IF:
-			log_info("Engine: received update if...");
 			if (IMSG_DATA_SIZE(imsg) != sizeof(imsg_ifinfo))
 				fatalx("%s: IMSG_UPDATE_IF wrong length: %lu",
 				    __func__, IMSG_DATA_SIZE(imsg));
@@ -333,8 +331,9 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 			 		fatal("calloc");
 				memcpy(&iface->hw_address, &imsg_ifinfo.hw_address,
 				    sizeof(imsg_ifinfo.hw_address));
-				memcpy(&iface->if_index, &imsg_ifinfo.if_index,
-				    sizeof(imsg_ifinfo.hw_address));
+				iface->if_index = imsg_ifinfo.if_index;
+				iface->running = imsg_ifinfo.running;
+
 				evtimer_set(&iface->timer, iface_timeout, iface);
 
 				/* Generate DUID */
@@ -342,19 +341,26 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 				    DHCP6_DUID_TYPE_LLPT, &iface->duid) != 0)
 					fatalx("%s: failed to generate DUID.",
 					    __func__);
-				log_info("%s: Generated DUID for iface %"PRIu32,
+				log_debug("%s: Generated DUID for iface %"PRIu32":",
 				    __func__, iface->if_index);
-				print_hex(iface->duid.duid_id, 0, 14);
+				if (log_getverbose())
+					print_hex(iface->duid.duid_id, 0, 14);
 
-				/* XXX: Awlays Rapid-Commit */
+				/* XXX: Always Rapid-Commit */
 				iface->options |= DHCP6_IFACE_OPTION_RAPID;
 
 				iface->state = IF_DELAY;
 				iface->probes = 0;
 
+				LIST_INSERT_HEAD(&dh6client_interfaces,
+				    iface, entries);
+
 				tv.tv_sec = 0;
 				tv.tv_usec = arc4random_uniform(MAX_DHCP6_SOLICITATION_DELAY_USEC);
-				evtimer_add(&iface->timer, &tv);
+				if (iface->running)
+					evtimer_add(&iface->timer, &tv);
+				else
+					iface->state = IF_DOWN;
 			} else {
 				int need_refresh = 0;
 
@@ -369,7 +375,6 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 			}
 			break;
 		default:
-			log_info("Engine: received other...");
 			if (IMSG_DATA_SIZE(imsg) != sizeof(dhcp6))
 			log_debug("%s: unexpected imsg %d", __func__,
 			    imsg.hdr.type);
@@ -427,7 +432,6 @@ get_dh6client_iface_by_id(uint32_t if_index)
 		if (iface->if_index == if_index)
 			return (iface);
 	}
-
 	return (NULL);
 }
 
@@ -479,22 +483,77 @@ dh6client_send_solicit(struct dh6client_iface *iface)
 	return (0);
 }
 
-void
+int
 dh6client_parse(struct imsg_dhcp6 *dhcp6)
 {
-	// struct dh6client_iface	*iface;
-	struct dhcp6_msg	*msg;
+	struct dh6client_iface		*iface;
+	struct dhcp6_msg		*msg;
+	struct dhcp6_option		*opt;
+	struct imsg_configure_address	 address;
+	char				 buffer[INET6_ADDRSTRLEN];
+	const char			*ptr;
+	uint8_t				*p;
+	uint32_t			 time;
 
-	// iface = get_dh6client_iface_by_id(dhcp6->if_index);
-	// if (iface == NULL) {
-	// 	log_info("%s: interface unknown.", __func__);
-	// 	return;
-	// }
+	iface = get_dh6client_iface_by_id(dhcp6->if_index);
+	if (iface == NULL) {
+		log_warn("%s: interface unknown.", __func__);
+		return (-1);
+	}
 
-	msg = dhcp6_msg_parse(dhcp6->packet, dhcp6->len);
+	if ((msg = dhcp6_msg_parse(dhcp6->packet, dhcp6->len)) == NULL)
+		return (-1);
 
-	log_info("%s: recveived message.", __func__);
+	log_debug("%s: received message on interface %d.", __func__,
+	    iface->if_index);
 	if (log_getverbose())
 		dhcp6_msg_print(msg);
+
+	switch(msg->msg_type) {
+	case DHCP6_MSG_TYPE_ADVERTISE:
+		if ((opt = dhcp6_options_get_option(&msg->msg_options,
+		    DHCP6_OPTION_IANA)) == NULL) {
+			log_debug("%s: No IA_NA option included.", __func__);
+			return (-1);
+		}
+		if ((opt = dhcp6_options_get_option(&opt->option_options,
+		    DHCP6_OPTION_IAADDR)) == NULL) {
+			log_debug("%s: No IA_ADDRESS option included.", __func__);
+			return (-1);
+		}
+
+		if ((ptr = inet_ntop(AF_INET6, opt->option_data, buffer,
+		    sizeof(buffer))) == NULL)
+			return (-1);
+		log_info("%s: Obtained IA_NA IPv6 address: %s on iface %d",
+		    __func__, ptr, iface->if_index);
+
+		/* Configure Address  */
+
+		bzero(&address, sizeof(address));
+		p = opt->option_data;
+		print_hex(p, 0, 24);
+		address.if_index = iface->if_index;
+		memset(&address.mask, 0xff, sizeof(address.mask));
+		address.addr.sin6_family = AF_INET6;
+		address.addr.sin6_len = sizeof(address.addr.sin6_addr);
+		memcpy(&address.addr.sin6_addr, p, sizeof(address.addr.sin6_addr));
+		p += sizeof(address.addr.sin6_addr);
+		memcpy(&time, p, sizeof(address.pltime));
+		log_info("%s: vltime: %u", __func__, time);
+		address.pltime = time;
+		p += sizeof(address.pltime);
+		memcpy(&address.vltime, p, sizeof(address.vltime));
+		log_info("%s: pltime: %u", __func__, time);
+		p += sizeof(address.vltime);
+		address.vltime = time;
+
+		engine_imsg_compose_main(IMSG_CONFIGURE_ADDRESS, 0, &address,
+		    sizeof(address));
+
+		iface->state = IF_IDLE;
+		break;
+	}
+	return (0);
 }
 

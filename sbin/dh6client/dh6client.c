@@ -1,5 +1,6 @@
 /*	$OpenBSD $	*/
 
+
 /*
  * Copyright (c) 2019 Tobias Heider <tobhe@openbsd.org>
  * Copyright (c) 2017 Florian Obser <florian@openbsd.org>
@@ -18,6 +19,7 @@
  */
 
 #include <sys/types.h>
+#include <sys/ioctl.h>
 #include <sys/queue.h>
 #include <sys/syslog.h>
 #include <sys/socket.h>
@@ -26,6 +28,7 @@
 #include <net/if.h>
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
+#include <netinet6/in6_var.h>
 
 #include <netdb.h>
 #include <unistd.h>
@@ -64,6 +67,8 @@ struct imsgev		*iev_engine;
 pid_t	 frontend_pid;
 pid_t	 engine_pid;
 
+int ioctl_sock;
+
 void
 main_sig_handler(int sig, short event, void *arg)
 {
@@ -75,7 +80,6 @@ main_sig_handler(int sig, short event, void *arg)
 	switch (sig) {
 	case SIGTERM:
 	case SIGINT:
-		log_info("Got signal...");
 		main_shutdown();
 	default:
 		fatalx("unexpected signal");
@@ -102,7 +106,6 @@ main(int argc, char *argv[])
 	char			*saved_argv0;
 	int			 pipe_main2frontend[2];
 	int			 pipe_main2engine[2];
-	int			 ioctl_sock;
 	int			 dhcp6sock, on = 1, error;
 	struct addrinfo		 hints, *res;
 	char			*csock = DH6CLIENT_SOCKET;
@@ -250,7 +253,7 @@ main(int argc, char *argv[])
 		fatalx("%s: getaddrinfo: %s", __func__, strerror(errno));
 	freeaddrinfo(res);
 
-	if (pledge("stdio sendfd", NULL) == -1)
+	if (pledge("stdio sendfd wroute", NULL) == -1)
 		fatal("pledge");
 
 	main_imsg_compose_frontend_fd(IMSG_DHCP6SOCK, 0, dhcp6sock);
@@ -290,7 +293,6 @@ main_shutdown(void)
 	free(iev_frontend);
 	free(iev_engine);
 
-	log_info("terminating");
 	exit(0);
 }
 
@@ -317,7 +319,6 @@ start_child(int p, char *argv0, int fd, int debug, int verbose)
 	} else if (fcntl(fd, F_SETFD, 0) == -1)
 		fatal("cannot setup imsg fd");
 
-	log_info("Start Child");
 	argv[argc++] = argv0;
 	switch (p) {
 	case PROC_MAIN:
@@ -335,7 +336,6 @@ start_child(int p, char *argv0, int fd, int debug, int verbose)
 		argv[argc++] = "-v";
 	argv[argc++] = NULL;
 
-	log_info("Exec Child");
 	execvp(argv0, argv);
 	fatal("execvp");
 }
@@ -372,7 +372,6 @@ main_dispatch_frontend(int fd, short event, void *bula)
 
 		switch (imsg.hdr.type) {
 		case IMSG_STARTUP_DONE:
-			log_info("%s: startup done.", __func__);
 			if (pledge("stdio", NULL) == -1)
 				fatal("pledge");
 			break;
@@ -395,11 +394,12 @@ main_dispatch_frontend(int fd, short event, void *bula)
 void
 main_dispatch_engine(int fd, short event, void *bula)
 {
-	struct imsgev	*iev = bula;
-	struct imsgbuf  *ibuf;
-	struct imsg	 imsg;
-	ssize_t		 n;
-	int		 shut = 0;
+	struct imsgev			*iev = bula;
+	struct imsgbuf  		*ibuf;
+	struct imsg			 imsg;
+	struct imsg_configure_address	 address;
+	ssize_t		 		 n;
+	int		 		 shut = 0;
 
 	ibuf = &iev->ibuf;
 
@@ -423,6 +423,14 @@ main_dispatch_engine(int fd, short event, void *bula)
 			break;
 
 		switch (imsg.hdr.type) {
+		case IMSG_CONFIGURE_ADDRESS:
+			if (IMSG_DATA_SIZE(imsg) != sizeof(address))
+				fatalx("%s: IMSG_CONFIGURE_ADDRESS wrong "
+				    "length: %lu", __func__,
+				    IMSG_DATA_SIZE(imsg));
+			memcpy(&address, imsg.data, sizeof(address));
+			configure_interface(&address);
+			break;
 		default:
 			log_debug("%s: error handling imsg %d", __func__,
 			    imsg.hdr.type);
@@ -468,7 +476,6 @@ static int
 main_imsg_send_ipc_sockets(struct imsgbuf *frontend_buf,
     struct imsgbuf *engine_buf)
 {
-	log_info("%s: sending IPC sockets.", __func__);
 	int pipe_frontend2engine[2];
 
 	if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK,
@@ -514,4 +521,44 @@ main_imsg_compose_engine(int type, pid_t pid, void *data, uint16_t datalen)
 		    datalen));
 	else
 		return (-1);
+}
+
+void
+configure_interface(struct imsg_configure_address *address)
+{
+	struct in6_aliasreq	 in6_addreq;
+	time_t			 t;
+	char			*if_name;
+
+	memset(&in6_addreq, 0, sizeof(in6_addreq));
+
+	if_name = if_indextoname(address->if_index, in6_addreq.ifra_name);
+	if (if_name == NULL) {
+		log_warnx("%s: cannot find interface %d", __func__,
+		    address->if_index);
+		return;
+	}
+
+	memcpy(&in6_addreq.ifra_addr, &address->addr,
+	    sizeof(in6_addreq.ifra_addr));
+	memcpy(&in6_addreq.ifra_prefixmask.sin6_addr, &address->mask,
+	    sizeof(in6_addreq.ifra_prefixmask.sin6_addr));
+	in6_addreq.ifra_prefixmask.sin6_family = AF_INET6;
+	in6_addreq.ifra_prefixmask.sin6_len =
+	    sizeof(in6_addreq.ifra_prefixmask);
+
+	t = time(NULL);
+
+	in6_addreq.ifra_lifetime.ia6t_expire = t + address->vltime;
+	in6_addreq.ifra_lifetime.ia6t_vltime = address->vltime;
+
+	in6_addreq.ifra_lifetime.ia6t_preferred = t + address->pltime;
+	in6_addreq.ifra_lifetime.ia6t_pltime = address->pltime;
+
+	in6_addreq.ifra_flags |= IN6_IFF_AUTOCONF;
+
+	log_debug("%s: %s", __func__, if_name);
+
+	if (ioctl(ioctl_sock, SIOCAIFADDR_IN6, &in6_addreq) == -1)
+		fatal("SIOCAIFADDR_IN6");
 }

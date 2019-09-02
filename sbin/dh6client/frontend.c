@@ -151,12 +151,12 @@ frontend(int debug, int verbose)
 	event_set(&iev_main->ev, iev_main->ibuf.fd, iev_main->events,
 	    iev_main->handler, iev_main);
 	event_add(&iev_main->ev, NULL);
-	
+
 	rcvcmsglen = CMSG_SPACE(sizeof(struct in6_pktinfo)) +
 	    CMSG_SPACE(sizeof(int));
 	if((rcvcmsgbuf = malloc(rcvcmsglen)) == NULL)
 		fatal("malloc");
-	
+
 	dhcp6ev.rcviov[0].iov_base = (caddr_t)dhcp6ev.answer;
 	dhcp6ev.rcviov[0].iov_len = sizeof(dhcp6ev.answer);
 	dhcp6ev.rcvmhdr.msg_name = (caddr_t)&dhcp6ev.from;
@@ -217,7 +217,6 @@ int
 frontend_imsg_compose_main(int type, pid_t pid, void *data,
     uint16_t datalen)
 {
-	log_info("Frontend: Sending to Main");
 	return (imsg_compose_event(iev_main, type, 0, pid, -1, data,
 	    datalen));
 }
@@ -310,7 +309,6 @@ int
 frontend_imsg_compose_engine(int type, uint32_t peerid, pid_t pid,
     void *data, uint16_t datalen)
 {
-	log_info("Frontend: Sending to Engine");
 	return (imsg_compose_event(iev_engine, type, peerid, pid, -1,
 	    data, datalen));
 }

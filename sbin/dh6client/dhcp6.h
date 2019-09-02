@@ -86,20 +86,22 @@ struct dhcp6_msg {
 #define DHCP6_MSG_TYPE_ADVERTISE	(2)
 #define DHCP6_MSG_TYPE_REQUEST		(3)
 #define DHCP6_MSG_TYPE_CONFIRM		(4)
-#define DHCP6_OPTION_IA_ADDR		(5)
 
 #define DHCP6_OPTION_NONE		(0)
 #define DHCP6_OPTION_CLIENTID		(1)
 #define DHCP6_OPTION_SERVERID		(2)
 #define DHCP6_OPTION_IANA		(3)
+#define DHCP6_OPTION_IAADDR		(5)
 #define DHCP6_OPTION_ELAPSED_TIME	(8)
 #define DHCP6_OPTION_RAPID_COMMIT	(14)
 
 int			 dhcp6_options_add_option(struct dhcp6_options *, int,
 			    void *, size_t);
-struct dhcp6_options	*dhcp6_options_add_iana(struct dhcp6_options *, uint32_t id,
-			    uint32_t t1, uint32_t t2);
+struct dhcp6_options	*dhcp6_options_add_iana(struct dhcp6_options *, uint32_t,
+			    uint32_t, uint32_t);
 struct dhcp6_options	*dhcp6_options_add_ia_addr(struct dhcp6_options *);
+struct dhcp6_option *	 dhcp6_options_get_option(struct dhcp6_options *opts,
+			    int);
 ssize_t			 dhcp6_msg_serialize(struct dhcp6_msg *, uint8_t *,
 			    ssize_t);
 struct dhcp6_msg	*dhcp6_msg_init(uint8_t);

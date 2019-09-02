@@ -163,6 +163,18 @@ dhcp6_options_free(struct dhcp6_options *opts, int depth)
 	}
 }
 
+struct dhcp6_option *
+dhcp6_options_get_option(struct dhcp6_options *opts, int code)
+{
+	struct dhcp6_option	*opt;
+
+	TAILQ_FOREACH(opt, opts, option_entry) {
+		if (opt->option_code == code)
+			return opt;
+	}
+	return (NULL);
+}
+
 /*
  * Add new option to list of options.
  * XXX: Change add option to start sublist and return pointer to objs
@@ -229,7 +241,7 @@ dhcp6_options_add_ia_addr(struct dhcp6_options *opts)
 	if ((opt = calloc(1, sizeof(struct dhcp6_option))) == NULL)
 		return (NULL);
 
-	opt->option_code = DHCP6_OPTION_IA_ADDR;
+	opt->option_code = DHCP6_OPTION_IAADDR;
 	opt->option_data_len = 24;
 	opt->option_data = calloc(1, 24);
 
@@ -377,7 +389,7 @@ dhcp6_options_parse(struct dhcp6_options *opts, uint8_t* data, size_t length,
 				data += opt->option_length - olen;
 			}
 			break;
-		case DHCP6_OPTION_IA_ADDR:
+		case DHCP6_OPTION_IAADDR:
 			olen = 2 * sizeof(uint64_t) + 2 * sizeof(uint32_t);
 			opt->option_data = calloc(1, olen);
 			opt->option_data_len = olen;

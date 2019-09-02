@@ -87,13 +87,14 @@ struct imsgev {
 };
 
 enum imsg_type {
-	IMSG_NONE,
+	IMSG_CONFIGURE_ADDRESS,
 	IMSG_DHCP6,
-	IMSG_SOCKET_IPC,
 	IMSG_DHCP6SOCK,
-	IMSG_UPDATE_IF,
+	IMSG_NONE,
+	IMSG_SOCKET_IPC,
 	IMSG_STARTUP,
 	IMSG_STARTUP_DONE,
+	IMSG_UPDATE_IF,
 };
 
 enum {
@@ -115,10 +116,20 @@ struct imsg_dhcp6 {
 	uint8_t			packet[1500];
 };
 
+struct imsg_configure_address {
+	uint32_t		 if_index;
+	struct sockaddr_in6	 addr;
+	struct in6_addr		 mask;
+	uint32_t		 vltime;
+	uint32_t		 pltime;
+};
+
+
 /* dh6client.c */
 void		 imsg_event_add(struct imsgev *);
 int		 imsg_compose_event(struct imsgev *, uint16_t, uint32_t, pid_t,
 		    int, void *, uint16_t);
+void		 configure_interface(struct imsg_configure_address *);
 
 /* util.c */
 void		 print_debug(const char *, ...);
