@@ -26,7 +26,9 @@ test_parser(void)
 	dhcp6_options_add_option(&msg->msg_options, 1, "test", sizeof("test"));
 	dhcp6_options_add_option(&msg->msg_options, 2, "lolwut", sizeof("lolwut"));
 	dhcp6_options_add_option(&msg->msg_options, 7, "waddafack", sizeof("waddafack"));
+	dhcp6_options_add_option(&msg->msg_options, DHCP6_OPTION_RAPID_COMMIT, NULL, 0);
 	opts = dhcp6_options_add_iana(&msg->msg_options, 0, 0, 0);
+	opts = dhcp6_options_add_ia_addr(opts);
 	dhcp6_options_add_option(opts, 7, "waddafack", sizeof("waddafack"));
 	dhcp6_options_add_option(opts, 2, "lolwut", sizeof("lolwut"));
 	dhcp6_options_add_option(&msg->msg_options, 2, "lolwut", sizeof("lolwut"));

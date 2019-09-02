@@ -19,7 +19,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-
 #ifndef DH6CLIENT_H
 #define DH6CLIENT_H
 
@@ -66,11 +65,13 @@ struct dh6client_iface {
 	struct sockaddr_in6		 ll_address;
 	int				 link_state;
 	uint32_t			 cur_mtu;
+	uint32_t			 options;
 	struct dhcp6_duid		 duid;
-	int				 sol_max_rt;
 	LIST_HEAD(, dh6client_server)	 dhcp_servers;
 };
 LIST_HEAD(, dh6client_iface) dh6client_interfaces;
+
+#define	DHCP6_IFACE_OPTION_RAPID	(0x01)
 
 static const char * const log_procnames[] = {
 	"main",

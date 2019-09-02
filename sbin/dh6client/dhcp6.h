@@ -24,6 +24,7 @@
 #include <arpa/inet.h>
 #include <net/if.h>
 #include <netinet/if_ether.h>
+#include <netinet/in.h>
 
 struct dhcp6_iana {
 	uint32_t	 iana_iaid;
@@ -53,18 +54,30 @@ struct dhcp6_duid_llpt {
 
 TAILQ_HEAD(dhcp6_options, dhcp6_option);
 struct dhcp6_option {
-	uint16_t			 option_code;
-	uint16_t			 option_length;
+	struct dhcp6_options		 option_options;
+	TAILQ_ENTRY(dhcp6_option)	 option_entry;
 	uint8_t				*option_data;
 	size_t				 option_data_len;
-	TAILQ_ENTRY(dhcp6_option)	 option_entry;
-	struct dhcp6_options		 option_options;
+	uint16_t			 option_code;
+	uint16_t			 option_length;
+};
+
+struct dhcp6_opt_ia_na {
+	uint32_t	iana_id;
+	uint32_t	iana_t1;
+	uint32_t	iana_t2;
+};
+
+struct dhcp6_opt_ia_addr {
+	struct in6_addr			iaaddr_ip;
+	uint32_t			iaaddr_pref_lt;
+	uint32_t			iaaddr_val_lt;
 };
 
 struct dhcp6_msg {
-	uint8_t				msg_type;
-	uint8_t				msg_transaction_id[3];
 	struct dhcp6_options		msg_options;
+	uint8_t				msg_transaction_id[3];
+	uint8_t				msg_type;
 };
 
 
@@ -73,17 +86,20 @@ struct dhcp6_msg {
 #define DHCP6_MSG_TYPE_ADVERTISE	(2)
 #define DHCP6_MSG_TYPE_REQUEST		(3)
 #define DHCP6_MSG_TYPE_CONFIRM		(4)
+#define DHCP6_OPTION_IA_ADDR		(5)
 
 #define DHCP6_OPTION_NONE		(0)
 #define DHCP6_OPTION_CLIENTID		(1)
 #define DHCP6_OPTION_SERVERID		(2)
 #define DHCP6_OPTION_IANA		(3)
 #define DHCP6_OPTION_ELAPSED_TIME	(8)
+#define DHCP6_OPTION_RAPID_COMMIT	(14)
 
 int			 dhcp6_options_add_option(struct dhcp6_options *, int,
 			    void *, size_t);
 struct dhcp6_options	*dhcp6_options_add_iana(struct dhcp6_options *, uint32_t id,
 			    uint32_t t1, uint32_t t2);
+struct dhcp6_options	*dhcp6_options_add_ia_addr(struct dhcp6_options *);
 ssize_t			 dhcp6_msg_serialize(struct dhcp6_msg *, uint8_t *,
 			    ssize_t);
 struct dhcp6_msg	*dhcp6_msg_init(uint8_t);

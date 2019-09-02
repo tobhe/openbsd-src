@@ -234,6 +234,10 @@ main(int argc, char *argv[])
 	    sizeof(on)) == -1)
 		fatal("SO_REUSEPORT");
 
+	if (setsockopt(dhcp6sock, IPPROTO_IPV6, IPV6_RECVPKTINFO, &on,
+	    sizeof(on)) == -1)
+		fatal("IPV6_RECVPKTINFO");
+
 	if (setsockopt(dhcp6sock, IPPROTO_IPV6, IPV6_MULTICAST_LOOP, &on,
 	    sizeof(on)) == -1)
 		fatal("IPV6_MULTICAST_LOOP");
@@ -344,8 +348,6 @@ main_dispatch_frontend(int fd, short event, void *bula)
 	struct imsg		 imsg;
 	ssize_t			 n;
 	int			 shut = 0;
-
-	log_info("Main: Recv from frontend...");
 
 	ibuf = &iev->ibuf;
 

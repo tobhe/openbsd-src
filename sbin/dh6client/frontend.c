@@ -102,8 +102,8 @@ frontend(int debug, int verbose)
 	struct passwd		*pw;
 	struct addrinfo		 hints, *res;
 	struct sockaddr_in6	 alldhcp6_storage;
-	size_t			 sndcmsgbuflen;
-	uint8_t			*sndcmsgbuf = NULL;
+	size_t			 rcvcmsglen, sndcmsgbuflen;
+	uint8_t			*rcvcmsgbuf, *sndcmsgbuf = NULL;
 	int			 error;
 
 	log_init(debug, LOG_DAEMON);
@@ -151,6 +151,20 @@ frontend(int debug, int verbose)
 	event_set(&iev_main->ev, iev_main->ibuf.fd, iev_main->events,
 	    iev_main->handler, iev_main);
 	event_add(&iev_main->ev, NULL);
+	
+	rcvcmsglen = CMSG_SPACE(sizeof(struct in6_pktinfo)) +
+	    CMSG_SPACE(sizeof(int));
+	if((rcvcmsgbuf = malloc(rcvcmsglen)) == NULL)
+		fatal("malloc");
+	
+	dhcp6ev.rcviov[0].iov_base = (caddr_t)dhcp6ev.answer;
+	dhcp6ev.rcviov[0].iov_len = sizeof(dhcp6ev.answer);
+	dhcp6ev.rcvmhdr.msg_name = (caddr_t)&dhcp6ev.from;
+	dhcp6ev.rcvmhdr.msg_namelen = sizeof(dhcp6ev.from);
+	dhcp6ev.rcvmhdr.msg_iov = dhcp6ev.rcviov;
+	dhcp6ev.rcvmhdr.msg_iovlen = 1;
+	dhcp6ev.rcvmhdr.msg_control = (caddr_t) rcvcmsgbuf;
+	dhcp6ev.rcvmhdr.msg_controllen = rcvcmsglen;
 
 	/* Initialize outgoing message */
 	bzero(&hints, sizeof(hints));
@@ -507,7 +521,7 @@ dh6client_recv(int fd, short events, void *arg)
 	struct in6_pktinfo	*pi = NULL;
 	struct cmsghdr		*cm;
 	ssize_t			 len;
-	int			 if_index = 0, *hlimp = NULL;
+	int			 if_index = 0;
 	char			 ntopbuf[INET6_ADDRSTRLEN], ifnamebuf[IFNAMSIZ];
 
 	if ((len = recvmsg(fd, &dhcp6ev.rcvmhdr, 0)) == -1) {
@@ -524,27 +538,10 @@ dh6client_recv(int fd, short events, void *arg)
 			pi = (struct in6_pktinfo *)(CMSG_DATA(cm));
 			if_index = pi->ipi6_ifindex;
 		}
-		if (cm->cmsg_level == IPPROTO_IPV6 &&
-		    cm->cmsg_type == IPV6_HOPLIMIT &&
-		    cm->cmsg_len == CMSG_LEN(sizeof(int)))
-			hlimp = (int *)CMSG_DATA(cm);
 	}
 
 	if (if_index == 0) {
 		log_warnx("failed to get receiving interface");
-		return;
-	}
-
-	if (hlimp == NULL) {
-		log_warnx("failed to get receiving hop limit");
-		return;
-	}
-
-	if (*hlimp != 255) {
-		log_warnx("invalid DHCPv6 message with hop limit of %d "
-		    "from %s on %s", *hlimp, inet_ntop(AF_INET6,
-		    &dhcp6ev.from.sin6_addr, ntopbuf, INET6_ADDRSTRLEN),
-		    if_indextoname(if_index, ifnamebuf));
 		return;
 	}
 
