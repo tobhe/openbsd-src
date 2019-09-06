@@ -490,10 +490,9 @@ dh6client_parse(struct imsg_dhcp6 *dhcp6)
 	struct dhcp6_msg		*msg;
 	struct dhcp6_option		*opt;
 	struct imsg_configure_address	 address;
+	struct dhcp6_opt_iaaddr		 iaaddr;
 	char				 buffer[INET6_ADDRSTRLEN];
 	const char			*ptr;
-	uint8_t				*p;
-	uint32_t			 time;
 
 	iface = get_dh6client_iface_by_id(dhcp6->if_index);
 	if (iface == NULL) {
@@ -529,24 +528,13 @@ dh6client_parse(struct imsg_dhcp6 *dhcp6)
 		    __func__, ptr, iface->if_index);
 
 		/* Configure Address  */
+		dhcp6_options_iaaddress_verify(&iaaddr, opt->option_data);
 
-		bzero(&address, sizeof(address));
-		p = opt->option_data;
-		print_hex(p, 0, 24);
 		address.if_index = iface->if_index;
-		memset(&address.mask, 0xff, sizeof(address.mask));
-		address.addr.sin6_family = AF_INET6;
-		address.addr.sin6_len = sizeof(address.addr.sin6_addr);
-		memcpy(&address.addr.sin6_addr, p, sizeof(address.addr.sin6_addr));
-		p += sizeof(address.addr.sin6_addr);
-		memcpy(&time, p, sizeof(address.pltime));
-		log_info("%s: vltime: %u", __func__, time);
-		address.pltime = time;
-		p += sizeof(address.pltime);
-		memcpy(&address.vltime, p, sizeof(address.vltime));
-		log_info("%s: pltime: %u", __func__, time);
-		p += sizeof(address.vltime);
-		address.vltime = time;
+		memset(&address.mask.s6_addr, 0xff, 16);
+		address.addr = iaaddr.iaaddr_addr;
+		address.pltime = iaaddr.iaaddr_pltime;
+		address.vltime = iaaddr.iaaddr_vltime;
 
 		engine_imsg_compose_main(IMSG_CONFIGURE_ADDRESS, 0, &address,
 		    sizeof(address));

@@ -175,6 +175,35 @@ dhcp6_options_get_option(struct dhcp6_options *opts, int code)
 	return (NULL);
 }
 
+int
+dhcp6_options_iaaddress_verify(struct dhcp6_opt_iaaddr *iaaddr,
+    uint8_t *data)
+{
+	bzero(iaaddr, sizeof(*iaaddr));
+
+	if (memcpy(&iaaddr->iaaddr_addr.sin6_addr, data,
+	    sizeof(iaaddr->iaaddr_addr.sin6_addr)) == NULL)
+		return (-1);
+	data += sizeof(iaaddr->iaaddr_addr.sin6_addr);
+	iaaddr->iaaddr_addr.sin6_len = sizeof(struct sockaddr_in6);
+	iaaddr->iaaddr_addr.sin6_family = PF_INET6;
+
+	if (memcpy(&iaaddr->iaaddr_pltime, data, sizeof(iaaddr->iaaddr_pltime)) == NULL)
+		return (-1);
+	ntohl(iaaddr->iaaddr_pltime);
+	data += sizeof(iaaddr->iaaddr_pltime);
+
+	if (memcpy(&iaaddr->iaaddr_vltime, data, sizeof(iaaddr->iaaddr_vltime)) == NULL)
+		return (-1);
+	ntohl(iaaddr->iaaddr_vltime);
+	data += sizeof(iaaddr->iaaddr_vltime);
+
+	if (iaaddr->iaaddr_pltime > iaaddr->iaaddr_vltime)
+		return (-1);
+
+	return (0);
+}
+
 /*
  * Add new option to list of options.
  * XXX: Change add option to start sublist and return pointer to objs
@@ -211,7 +240,7 @@ dhcp6_options_add_iana(struct dhcp6_options *opts, uint32_t id, uint32_t t1,
     uint32_t t2)
 {
 	struct dhcp6_option 	*opt;
-	struct dhcp6_opt_ia_na	*p;
+	struct dhcp6_opt_iana	*p;
 
 	if ((opt = calloc(1, sizeof(struct dhcp6_option))) == NULL)
 		return (NULL);
@@ -219,7 +248,7 @@ dhcp6_options_add_iana(struct dhcp6_options *opts, uint32_t id, uint32_t t1,
 	opt->option_code = DHCP6_OPTION_IANA;
 	opt->option_data_len = 12;
 	opt->option_data = calloc(3, sizeof(uint32_t));
-	p = (struct dhcp6_opt_ia_na*)opt->option_data;
+	p = (struct dhcp6_opt_iana*)opt->option_data;
 	p->iana_id = id;
 	p->iana_t1 = t1;
 	p->iana_t2 = t2;

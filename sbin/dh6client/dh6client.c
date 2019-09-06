@@ -372,7 +372,7 @@ main_dispatch_frontend(int fd, short event, void *bula)
 
 		switch (imsg.hdr.type) {
 		case IMSG_STARTUP_DONE:
-			if (pledge("stdio", NULL) == -1)
+			if (pledge("stdio wroute", NULL) == -1)
 				fatal("pledge");
 			break;
 		default:

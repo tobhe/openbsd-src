@@ -435,8 +435,8 @@ if_update(uint32_t if_index, char* if_name)
 	flags = if_get_flags(if_name);
 	xflags = if_get_xflags(if_name);
 
-	// if (!(xflags & IFXF_AUTOCONF6))
-	// 	return;
+	if (!(xflags & IFXF_AUTOCONF6))
+		return;
 
 	memset(&imsg_ifinfo, 0, sizeof(imsg_ifinfo));
 
