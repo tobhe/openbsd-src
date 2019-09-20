@@ -1,9 +1,11 @@
-/*	$OpenBSD $	*/
-
+/*	$OpenBSD$	*/
 
 /*
  * Copyright (c) 2019 Tobias Heider <tobhe@openbsd.org>
  * Copyright (c) 2017 Florian Obser <florian@openbsd.org>
+ * Copyright (c) 2005 Claudio Jeker <claudio@openbsd.org>
+ * Copyright (c) 2004 Esben Norby <norby@openbsd.org>
+ * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -43,31 +45,33 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <pwd.h>
+#include <inttypes.h>
 
+#include "dhcp6.h"
 #include "dh6client.h"
 
-__dead void	usage(void);
-__dead void	main_shutdown(void);
+__dead void	 usage(void);
+__dead void	 main_shutdown(void);
 
-void	main_sig_handler(int, short, void *);
+void		 main_sig_handler(int, short, void *);
 
-static pid_t	start_child(int, char *, int, int, int);
+static pid_t	 start_child(int, char *, int, int, int);
 
-void	main_dispatch_frontend(int, short, void *);
-void	main_dispatch_engine(int, short, void *);
+void		 main_dispatch_frontend(int, short, void *);
+void		 main_dispatch_engine(int, short, void *);
 
-static int	main_imsg_send_ipc_sockets(struct imsgbuf *, struct imsgbuf *);
-int		main_imsg_compose_frontend(int, pid_t, void *, uint16_t);
-int		main_imsg_compose_frontend_fd(int, pid_t, int);
-int		main_imsg_compose_engine(int, pid_t, void *, uint16_t);
+static int	 main_imsg_send_ipc_sockets(struct imsgbuf *, struct imsgbuf *);
+int		 main_imsg_compose_frontend(int, pid_t, void *, uint16_t);
+int		 main_imsg_compose_frontend_fd(int, pid_t, int);
+int		 main_imsg_compose_engine(int, pid_t, void *, uint16_t);
 
-struct imsgev		*iev_frontend;
-struct imsgev		*iev_engine;
+struct imsgev	*iev_frontend;
+struct imsgev	*iev_engine;
 
-pid_t	 frontend_pid;
-pid_t	 engine_pid;
+pid_t	 	 frontend_pid;
+pid_t	 	 engine_pid;
 
-int ioctl_sock;
+int 		 ioctl_sock;
 
 void
 main_sig_handler(int sig, short event, void *arg)
@@ -76,7 +80,6 @@ main_sig_handler(int sig, short event, void *arg)
 	 * Normal signal handler rules don't apply because libevent
 	 * decouples for us.
 	 */
-
 	switch (sig) {
 	case SIGTERM:
 	case SIGINT:
@@ -108,7 +111,6 @@ main(int argc, char *argv[])
 	int			 pipe_main2engine[2];
 	int			 dhcp6sock, on = 1, error;
 	struct addrinfo		 hints, *res;
-	char			*csock = DH6CLIENT_SOCKET;
 
 	log_init(1, LOG_DAEMON);	/* Log to stderr until daemonized. */
 	log_setverbose(1);
@@ -117,21 +119,20 @@ main(int argc, char *argv[])
 	if (saved_argv0 == NULL)
 		saved_argv0 = "dh6client";
 
-	while ((ch = getopt(argc, argv, "dtEFs:v")) != -1) {
+	while ((ch = getopt(argc, argv, "dtTEFs:v")) != -1) {
 		switch (ch) {
 		case 'd':
 			debug = 1;
 			break;
 		case 't':
 			return test_parser();
+		case 'T':
+			return test_unit();
 		case 'E':
 			engine_flag = 1;
 			break;
 		case 'F':
 			frontend_flag = 1;
-			break;
-		case 's':
-			csock = optarg;
 			break;
 		case 'v':
 			verbose++;

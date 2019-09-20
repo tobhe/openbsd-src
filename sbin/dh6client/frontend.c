@@ -51,10 +51,16 @@
 
 #define	ALLDHCP6		"ff02::1:2"
 
-__dead void	 frontend_shutdown(void);
-void		 frontend_sig_handler(int, short, void *);
-void		 frontend_startup(void);
-void		 frontend_send_dhcp6(struct imsg_dhcp6 *);
+__dead static void	 frontend_shutdown(void);
+static void		 frontend_sig_handler(int, short, void *);
+static void		 frontend_startup(void);
+static void		 frontend_send_dhcp6(struct imsg_dhcp6 *);
+static void		 frontend_dispatch_main(int, short, void *);
+static void		 frontend_dispatch_engine(int, short, void *);
+static int		 frontend_imsg_compose_main(int, pid_t, void *,
+			    uint16_t);
+static int		 frontend_imsg_compose_engine(int, uint32_t, pid_t,
+			    void *, uint16_t);
 
 int		 if_get_flags(char *);
 int		 if_get_xflags(char *);
@@ -78,7 +84,7 @@ struct dhcp6_ev {
 	struct sockaddr_in6	 from;
 } dhcp6ev;
 
-void
+static void
 frontend_sig_handler(int sig, short event, void *bula)
 {
 	/*
@@ -113,9 +119,9 @@ frontend(int debug, int verbose)
 		fatal("getpwnam");
 
 	if (chroot(pw->pw_dir) == -1)
-	 	fatal("chroot");
+		fatal("chroot");
 	if (chdir("/") == -1)
-	 	fatal("chdir(\"/\")");
+		fatal("chdir(\"/\")");
 
 	dh6client_process = PROC_FRONTEND;
 	setproctitle("%s", log_procnames[dh6client_process]);
@@ -195,7 +201,7 @@ frontend(int debug, int verbose)
 	frontend_shutdown();
 }
 
-__dead void
+__dead static void
 frontend_shutdown(void)
 {
 	/* Close pipes. */
@@ -213,7 +219,7 @@ frontend_shutdown(void)
 	exit(0);
 }
 
-int
+static int
 frontend_imsg_compose_main(int type, pid_t pid, void *data,
     uint16_t datalen)
 {
@@ -221,7 +227,7 @@ frontend_imsg_compose_main(int type, pid_t pid, void *data,
 	    datalen));
 }
 
-void
+static void
 frontend_dispatch_main(int fd, short event, void *bula)
 {
 	struct imsg		 imsg;
@@ -305,7 +311,7 @@ frontend_dispatch_main(int fd, short event, void *bula)
 	}
 }
 
-int
+static int
 frontend_imsg_compose_engine(int type, uint32_t peerid, pid_t pid,
     void *data, uint16_t datalen)
 {
@@ -313,7 +319,7 @@ frontend_imsg_compose_engine(int type, uint32_t peerid, pid_t pid,
 	    data, datalen));
 }
 
-void
+static void
 frontend_dispatch_engine(int fd, short event, void *bula)
 {
 	struct imsgev		*iev = bula;
@@ -407,8 +413,6 @@ if_get_hwaddr(char *if_name, struct ether_addr *mac)
 		if (strcmp(if_name, ifa->ifa_name) != 0)
 			continue;
 
-		log_debug("%s: cmp %s and %s type %d", __func__, if_name, ifa->ifa_name, ifa->ifa_addr->sa_family);
-
 		if (ifa->ifa_addr->sa_family == AF_LINK) {
 			sdl = (struct sockaddr_dl *)ifa->ifa_addr;
 			if (sdl->sdl_type != IFT_ETHER ||
@@ -454,7 +458,7 @@ if_update(uint32_t if_index, char* if_name)
 	    sizeof(imsg_ifinfo));
 }
 
-void
+static void
 frontend_startup(void)
 {
 	struct if_nameindex	*ifnidxp, *ifnidx;
@@ -478,7 +482,7 @@ frontend_startup(void)
 	if_freenameindex(ifnidxp);
 }
 
-void
+static void
 frontend_send_dhcp6(struct imsg_dhcp6 *imsg)
 {
 	struct cmsghdr		*cm;
@@ -504,8 +508,6 @@ frontend_send_dhcp6(struct imsg_dhcp6 *imsg)
 	cm->cmsg_type = IPV6_HOPLIMIT;
 	cm->cmsg_len = CMSG_LEN(sizeof(int));
 	memcpy(CMSG_DATA(cm), &hoplimit, sizeof(int));
-
-	log_debug("send RA on %d", imsg->if_index);
 
 	len = sendmsg(dhcp6sock, &sndmhdr, 0);
 	if (len == -1)

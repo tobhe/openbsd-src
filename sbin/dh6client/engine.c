@@ -1,4 +1,5 @@
 /*	$OpenBSD$	*/
+
 /*
  * Copyright (c) 2019 Tobias Heider <tobhe@openbsd.org>
  * Copyright (c) 2017 Florian Obser <florian@openbsd.org>
@@ -85,11 +86,12 @@ const char* if_state_name[] = {
 	"IF_IDLE",
 };
 
-__dead void		 engine_shutdown(void);
-void			 engine_sig_handler(int sig, short, void *);
-int			 engine_imsg_compose_main(int, pid_t, void *, uint16_t);
-void			 engine_dispatch_main(int, short, void *);
-void			 engine_dispatch_frontend(int, short, void *);
+__dead static void	 engine_shutdown(void);
+static void		 engine_sig_handler(int sig, short, void *);
+static int		 engine_imsg_compose_main(int, pid_t, void *, uint16_t);
+static void		 engine_dispatch_main(int, short, void *);
+static void		 engine_dispatch_frontend(int, short, void *);
+static int		 engine_get_duid(char *, struct dhcp6_duid *);
 
 void			 iface_timeout(int, short, void *);
 struct dh6client_iface	*get_dh6client_iface_by_id(uint32_t);
@@ -99,7 +101,7 @@ struct imsgev		*iev_frontend;
 struct imsgev		*iev_main;
 int64_t			 proposal_id;
 
-void
+static void
 engine_sig_handler(int sig, short event, void *arg)
 {
 	/*
@@ -124,6 +126,9 @@ engine(int debug, int verbose)
 	log_init(debug, LOG_DAEMON);
 	log_setverbose(verbose);
 
+	if (engine_get_duid(DH6CLIENT_DUID_FILE, &duid) == -1)
+		fatal("duid");
+
 	if ((pw = getpwnam(DH6CLIENT_USER)) == NULL)
 		fatal("getpwnam");
 
@@ -147,8 +152,7 @@ engine(int debug, int verbose)
 	event_init();
 
 	/* Setup signal handler(s). */
-	signal_set(&ev_sigint, SIGINT, engine_sig_handler, NULL);
-	signal_set(&ev_sigterm, SIGTERM, engine_sig_handler, NULL);
+	signal_set(&ev_sigint, SIGINT, engine_sig_handler, NULL); signal_set(&ev_sigterm, SIGTERM, engine_sig_handler, NULL);
 	signal_add(&ev_sigint, NULL);
 	signal_add(&ev_sigterm, NULL);
 	signal(SIGPIPE, SIG_IGN);
@@ -174,7 +178,7 @@ engine(int debug, int verbose)
 	engine_shutdown();
 }
 
-__dead void
+__dead static void
 engine_shutdown(void)
 {
 	/* Close pipes. */
@@ -189,7 +193,7 @@ engine_shutdown(void)
 	exit(0);
 }
 
-int
+static int
 engine_imsg_compose_main(int type, pid_t pid, void *data,
     uint16_t datalen)
 {
@@ -197,7 +201,7 @@ engine_imsg_compose_main(int type, pid_t pid, void *data,
 	    data, datalen));
 }
 
-void
+static void
 engine_dispatch_main(int fd, short event, void *bula)
 {
 	struct imsg		 imsg;
@@ -271,7 +275,7 @@ engine_dispatch_main(int fd, short event, void *bula)
 	}
 }
 
-int
+static int
 engine_imsg_compose_frontend(int type, pid_t pid, void *data,
     uint16_t datalen)
 {
@@ -279,7 +283,7 @@ engine_imsg_compose_frontend(int type, pid_t pid, void *data,
 	    data, datalen));
 }
 
-void
+static void
 engine_dispatch_frontend(int fd, short event, void *bula)
 {
 	struct dh6client_iface	*iface;
@@ -327,8 +331,8 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 
 			iface = get_dh6client_iface_by_id(imsg_ifinfo.if_index);
 			if (iface == NULL) {
-			 	if ((iface = calloc(1, sizeof(*iface))) == NULL)
-			 		fatal("calloc");
+				if ((iface = calloc(1, sizeof(*iface))) == NULL)
+					fatal("calloc");
 				memcpy(&iface->hw_address, &imsg_ifinfo.hw_address,
 				    sizeof(imsg_ifinfo.hw_address));
 				iface->if_index = imsg_ifinfo.if_index;
@@ -336,18 +340,8 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 
 				evtimer_set(&iface->timer, iface_timeout, iface);
 
-				/* Generate DUID */
-				if (dhcp6_get_duid(&iface->hw_address,
-				    DHCP6_DUID_TYPE_LLPT, &iface->duid) != 0)
-					fatalx("%s: failed to generate DUID.",
-					    __func__);
-				log_debug("%s: Generated DUID for iface %"PRIu32":",
-				    __func__, iface->if_index);
-				if (log_getverbose())
-					print_hex(iface->duid.duid_id, 0, 14);
-
 				/* XXX: Always Rapid-Commit */
-				iface->options |= DHCP6_IFACE_OPTION_RAPID;
+				iface->options |= DH6CLIENT_IFACE_OPTION_RAPID;
 
 				iface->state = IF_DELAY;
 				iface->probes = 0;
@@ -447,7 +441,7 @@ dh6client_send_solicit(struct dh6client_iface *iface)
 
 	/* Mandatory client ID */
 	if (dhcp6_options_add_option(&msg->msg_options, DHCP6_OPTION_CLIENTID,
-	    iface->duid.duid_id, iface->duid.duid_len) == -1)
+	    duid.duid_id, duid.duid_len) == -1)
 		return (-1);
 
 	/* Mandatory elapsed time option */
@@ -460,7 +454,7 @@ dh6client_send_solicit(struct dh6client_iface *iface)
 	if (dhcp6_options_add_iana(&msg->msg_options, 0, 0, 0) == NULL)
 		return (-1);
 
-	if (iface->options & DHCP6_IFACE_OPTION_RAPID)
+	if (iface->options & DH6CLIENT_IFACE_OPTION_RAPID)
 		dhcp6_options_add_option(&msg->msg_options,
 		    DHCP6_OPTION_RAPID_COMMIT, NULL, 0);
 
@@ -469,7 +463,7 @@ dh6client_send_solicit(struct dh6client_iface *iface)
 
 	/* Check correctness by parsing */
 	if (dhcp6_msg_parse(imsg.packet, imsg.len) == NULL)
-	 	return (-1);
+		return (-1);
 
 	if (log_getverbose()) {
 		dhcp6_msg_print(msg);
@@ -510,38 +504,97 @@ dh6client_parse(struct imsg_dhcp6 *dhcp6)
 
 	switch(msg->msg_type) {
 	case DHCP6_MSG_TYPE_ADVERTISE:
-		if ((opt = dhcp6_options_get_option(&msg->msg_options,
-		    DHCP6_OPTION_IANA)) == NULL) {
-			log_debug("%s: No IA_NA option included.", __func__);
-			return (-1);
+		if (iface->options & DH6CLIENT_IFACE_OPTION_RAPID) {
+			/* Rapid two message handshake */
+			if ((opt = dhcp6_options_get_option(&msg->msg_options,
+			    DHCP6_OPTION_IANA)) == NULL) {
+				log_debug("%s: No IA_NA option included.",
+				    __func__);
+				return (-1);
+			}
+			if ((opt = dhcp6_options_get_option(&opt->option_options,
+			    DHCP6_OPTION_IAADDR)) == NULL) {
+				log_debug("%s: No IA_ADDRESS option included.",
+				    __func__);
+				return (-1);
+			}
+
+			if ((ptr = inet_ntop(AF_INET6, opt->option_data, buffer,
+			    sizeof(buffer))) == NULL)
+				return (-1);
+			log_info("%s: Obtained IA_NA IPv6 address: %s on iface %d",
+			    __func__, ptr, iface->if_index);
+
+			/* Configure Address  */
+			dhcp6_options_iaaddress_verify(&iaaddr, opt->option_data);
+
+			address.if_index = iface->if_index;
+			memset(&address.mask.s6_addr, 0xff, 16);
+			address.addr = iaaddr.iaaddr_addr;
+			address.pltime = iaaddr.iaaddr_pltime;
+			address.vltime = iaaddr.iaaddr_vltime;
+
+			engine_imsg_compose_main(IMSG_CONFIGURE_ADDRESS, 0,
+			    &address, sizeof(address));
+
+			iface->state = IF_IDLE;
+		} else {
+			/* Four message handshake */
+
 		}
-		if ((opt = dhcp6_options_get_option(&opt->option_options,
-		    DHCP6_OPTION_IAADDR)) == NULL) {
-			log_debug("%s: No IA_ADDRESS option included.", __func__);
-			return (-1);
-		}
-
-		if ((ptr = inet_ntop(AF_INET6, opt->option_data, buffer,
-		    sizeof(buffer))) == NULL)
-			return (-1);
-		log_info("%s: Obtained IA_NA IPv6 address: %s on iface %d",
-		    __func__, ptr, iface->if_index);
-
-		/* Configure Address  */
-		dhcp6_options_iaaddress_verify(&iaaddr, opt->option_data);
-
-		address.if_index = iface->if_index;
-		memset(&address.mask.s6_addr, 0xff, 16);
-		address.addr = iaaddr.iaaddr_addr;
-		address.pltime = iaaddr.iaaddr_pltime;
-		address.vltime = iaaddr.iaaddr_vltime;
-
-		engine_imsg_compose_main(IMSG_CONFIGURE_ADDRESS, 0, &address,
-		    sizeof(address));
-
-		iface->state = IF_IDLE;
+		break;
+	default:
+		log_warn("%s: unknown message type (%d).", __func__,
+		    msg->msg_type);
 		break;
 	}
 	return (0);
 }
 
+
+static int
+engine_get_duid(char *path, struct dhcp6_duid *id)
+{
+	FILE			*fp = NULL;
+	int			 ret = -1;
+	size_t			 r;
+
+	bzero(id, sizeof(*id));
+
+	if ((fp = fopen(path, "r")) == NULL) {
+		/* No previous DUID, generate new */
+		if (dhcp6_get_duid(NULL, DHCP6_DUID_TYPE_RAND, id) == -1)
+			goto err;
+
+		if ((fp = fopen(path, "w+")) == NULL) {
+			log_debug("%s: Failed to open DUID for write.",
+			    __func__);
+			goto err;
+		}
+		if ((fwrite(&id->duid_len, sizeof(id->duid_len), 1, fp)) != 1) {
+			goto err;
+		}
+		if ((fwrite(id->duid_id, id->duid_len, 1, fp)) != 1) {
+			goto err;
+		}
+	} else {
+		if ((r = fread(&id->duid_len, sizeof(id->duid_len), 1, fp))
+		    != 1) {
+			log_debug("%s: error failed read len:", __func__);
+			goto err;
+		}
+
+		id->duid_id = calloc(id->duid_len, sizeof(uint8_t));
+		if ((r = fread(id->duid_id, 1, id->duid_len, fp))
+		    != id->duid_len) {
+			log_debug("%s: error failed read:", __func__);
+			goto err;
+		}
+	}
+	print_debug("%s: DUID: ", __func__);
+	print_hex(id->duid_id, 0, id->duid_len);
+	ret = 0;
+ err:
+	fclose(fp);
+	return (ret);
+}

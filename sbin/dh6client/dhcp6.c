@@ -37,6 +37,10 @@
 #include "dh6client.h"
 #include "dhcp6.h"
 
+/* Thresholds to prevent overflows in parser */
+#define DHCP6_OPTIONS_MAX	(64)
+#define DHCP6_MESSAGE_LEN_MAX	(512)
+
 static int	buf_write(uint8_t **to, void *from, size_t from_len, size_t *len);
 static int	buf_get(void *to, uint8_t **from, size_t to_len, size_t *len);
 
@@ -60,6 +64,12 @@ buf_write(uint8_t **to, void *from, size_t from_len, size_t *len)
 int
 buf_get(void *to, uint8_t **from, size_t to_len, size_t *len)
 {
+	print_hex(*from, 0, to_len);
+	if (*len < to_len) {
+		log_debug("%s: invalid length, %zu > %zu", __func__, *len,
+		    to_len);
+		return (-1);
+	}
 	if (memcpy(to, *from, to_len) == NULL)
 		return (-1);
 	*from += to_len;
@@ -370,16 +380,22 @@ dhcp6_msg_parse(uint8_t* data, size_t length)
 	TAILQ_INIT(&msg->msg_options);
 
 	/* Header */
-	buf_get(&msg->msg_type, &data, sizeof(msg->msg_type), &length);
-	buf_get(&msg->msg_transaction_id, &data, sizeof(msg->msg_transaction_id), &length);
+	if (buf_get(&msg->msg_type, &data,
+	    sizeof(msg->msg_type), &length) == -1)
+		goto clean;
+	if (buf_get(&msg->msg_transaction_id, &data,
+	    sizeof(msg->msg_transaction_id), &length) == -1)
+		goto clean;
 
 	/* Options */
 	if (dhcp6_options_parse(&msg->msg_options, data, length, 0) == NULL) {
-		printf("Failed to parse options.\n");
-		free(msg);
-		return (NULL);
+		log_warn("%s: Failed to parse options.\n", __func__);
+		goto clean;
 	}
 	return (msg);
+ clean:
+	dhcp6_msg_free(msg);
+	return (NULL);
 }
 
 struct dhcp6_options *
@@ -388,19 +404,30 @@ dhcp6_options_parse(struct dhcp6_options *opts, uint8_t* data, size_t length,
 {
 	struct dhcp6_option	*opt;
 	size_t			 olen;
+	size_t			 count = 0;
 
-	while (length) {
+	while (length > 0 && count < DHCP6_OPTIONS_MAX) {
+		log_info("%s: length: %zu", __func__, length);
 		if ((opt = calloc(1, sizeof(*opt))) == NULL) {
-			printf("Failed calloc.\n");
+			log_warn("Failed calloc.\n");
 			return (NULL);
 		}
 		TAILQ_INIT(&opt->option_options);
 
-		buf_get(&opt->option_code, &data, sizeof(opt->option_code), &length);
+		if (buf_get(&opt->option_code, &data, sizeof(opt->option_code),
+		    &length) == -1)
+			goto clean;
 		opt->option_code = ntohs(opt->option_code);
 
-		buf_get(&opt->option_length, &data, sizeof(opt->option_length), &length);
+		if (buf_get(&opt->option_length, &data, sizeof(opt->option_length),
+		    &length) == -1)
+			goto clean;
+
 		opt->option_length = ntohs(opt->option_length);
+		if (opt->option_length > 512) {
+			log_debug("%s: invalid size value.", __func__);
+			goto clean;
+		}
 
 		switch(opt->option_code) {
 		case DHCP6_OPTION_IANA:
@@ -426,7 +453,7 @@ dhcp6_options_parse(struct dhcp6_options *opts, uint8_t* data, size_t length,
 			if (opt->option_length - olen > 0) {
 				/* Recursion depth limited to 3.*/
 				if (++depth > 2)
-					return NULL;
+					goto clean;
 				dhcp6_options_parse(&opt->option_options,
 				    data, opt->option_length - olen, depth);
 				length -= opt->option_length - olen;
@@ -434,7 +461,7 @@ dhcp6_options_parse(struct dhcp6_options *opts, uint8_t* data, size_t length,
 			}
 			break;
 		default:
-			if (opt->option_length) {
+			if (opt->option_length > 0 ) {
 				opt->option_data = calloc(1, opt->option_length);
 				opt->option_data_len = opt->option_length;
 				buf_get(opt->option_data, &data,
@@ -443,36 +470,57 @@ dhcp6_options_parse(struct dhcp6_options *opts, uint8_t* data, size_t length,
 			break;
 		}
 		TAILQ_INSERT_TAIL(opts, opt, option_entry);
+		++count;
 	}
 	return opts;
+ clean:
+	dhcp6_options_free(opts, depth);
+	return (NULL);
 }
 
 int
 dhcp6_get_duid(struct ether_addr *mac,
-    uint8_t type, struct dhcp6_duid *duid)
+    uint8_t type, struct dhcp6_duid *d)
 {
 	struct dhcp6_duid_llpt		*llpt;
 	size_t				 len;
 	uint64_t			 t;
 	int				 ret = -1;
 
-	duid->duid_type = type;
+	if (d == NULL)
+		return ret;
+
+	d->duid_type = type;
 
 	switch (type) {
-	case  DHCP6_DUID_TYPE_LLPT:
+	case DHCP6_DUID_TYPE_LLPT:
 		len = ETHER_ADDR_LEN + sizeof(struct dhcp6_duid_llpt);
 
-		duid->duid_id = calloc(1, len);
-		llpt = (struct dhcp6_duid_llpt *)duid->duid_id;
+		d->duid_id = calloc(1, len);
+		llpt = (struct dhcp6_duid_llpt *)d->duid_id;
 
-		llpt->llpt_type = htons(1);
+		llpt->llpt_type = htons(type);
 		llpt->llpt_hwtype = htons(type);
 		t = (uint64_t)(time(NULL) - 946684800);
 		llpt->llpt_time = htonl((uint32_t)(t & 0xffffffff));
 
 		memcpy(llpt + 1, &mac->ether_addr_octet, ETHER_ADDR_LEN);
 
-		duid->duid_len = len;
+		d->duid_len = len;
+		ret = 0;
+		break;
+	case DHCP6_DUID_TYPE_RAND:
+		/* Fake type 1 for compatibiltity */
+		len = ETHER_ADDR_LEN + sizeof(uint64_t);
+		d->duid_id = calloc(1, len);
+		llpt = (struct dhcp6_duid_llpt *)d->duid_id;
+
+		llpt->llpt_type = htons(1);
+		llpt->llpt_hwtype = htons(1);
+		arc4random_buf(&llpt->llpt_time,
+		    ETHER_ADDR_LEN + sizeof(uint32_t));
+
+		d->duid_len = len;
 		ret = 0;
 		break;
 	default:

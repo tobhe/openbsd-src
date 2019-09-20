@@ -35,7 +35,7 @@ struct dhcp6_iana {
 struct dhcp6_duid {
 	uint8_t		 duid_type;
 	uint8_t		*duid_id;
-	size_t		 duid_len;
+	uint16_t	 duid_len;
 };
 
 #define DHCP6_DUID_TYPE_NONE	(0)
@@ -43,6 +43,7 @@ struct dhcp6_duid {
 #define DHCP6_DUID_TYPE_VID	(1)
 #define DHCP6_DUID_TYPE_LL	(2)
 #define DHCP6_DUID_TYPE_UUID	(3)
+#define DHCP6_DUID_TYPE_RAND	(4)
 
 struct dhcp6_duid_llpt {
 	uint16_t	 llpt_type;
@@ -79,7 +80,6 @@ struct dhcp6_msg {
 	uint8_t				msg_transaction_id[3];
 	uint8_t				msg_type;
 };
-
 
 #define DHCP6_MSG_TYPE_NONE		(0)
 #define DHCP6_MSG_TYPE_SOLICIT		(1)

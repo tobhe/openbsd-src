@@ -38,8 +38,9 @@
 #include "dhcp6.h"
 
 #define	DH6CLIENT_SOCKET	"/dev/dh6client.sock"
-#define	DH6CLIENT_USER		"_slaacd"
+#define	DH6CLIENT_USER		"_dh6client"
 #define	DH6CLIENT_RTA_LABEL	"dh6client"
+#define DH6CLIENT_DUID_FILE	"/var/db/dh6client_duid"
 
 #define	IMSG_DATA_SIZE(imsg)	((imsg).hdr.len - IMSG_HEADER_SIZE)
 
@@ -66,12 +67,11 @@ struct dh6client_iface {
 	int				 link_state;
 	uint32_t			 cur_mtu;
 	uint32_t			 options;
-	struct dhcp6_duid		 duid;
 	LIST_HEAD(, dh6client_server)	 dhcp_servers;
 };
 LIST_HEAD(, dh6client_iface) dh6client_interfaces;
 
-#define	DHCP6_IFACE_OPTION_RAPID	(0x01)
+#define	DH6CLIENT_IFACE_OPTION_RAPID	(0x01)
 
 static const char * const log_procnames[] = {
 	"main",
@@ -124,6 +124,7 @@ struct imsg_configure_address {
 	uint32_t		 pltime;
 };
 
+struct dhcp6_duid	 duid;
 
 /* dh6client.c */
 void		 imsg_event_add(struct imsgev *);
@@ -137,16 +138,13 @@ void		 print_hex(uint8_t *,  off_t, size_t);
 
 /* engine.c */
 void		 engine(int, int);
-int		 engine_imsg_compose_frontend(int, pid_t, void *, uint16_t);
 int		 dh6client_send_solicit(struct dh6client_iface *);
 
 /* frontend.c */
 void		 frontend(int, int);
-void		 frontend_dispatch_main(int, short, void *);
-void		 frontend_dispatch_engine(int, short, void *);
-int		 frontend_imsg_compose_main(int, pid_t, void *, uint16_t);
-int		 frontend_imsg_compose_engine(int, uint32_t, pid_t, void *,
-		     uint16_t);
+
+/* test.c */
+int		 test_unit(void);
 
 /* log.c */
 void	log_init(int, int);

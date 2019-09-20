@@ -12,7 +12,7 @@
 #include "dh6client.h"
 
 int
-test_parser(void)
+test_unit(void)
 {
 	struct dhcp6_msg	*msg;
 	struct ibuf		*buf;
