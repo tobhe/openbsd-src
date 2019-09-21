@@ -59,6 +59,7 @@ struct dh6client_iface {
 	LIST_ENTRY(dh6client_iface)	 entries;
 	enum if_state			 state;
 	struct event			 timer;
+	struct timeval			 start_time;
 	int				 probes;
 	uint32_t			 if_index;
 	int				 running;

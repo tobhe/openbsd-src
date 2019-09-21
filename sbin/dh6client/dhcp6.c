@@ -198,15 +198,15 @@ dhcp6_options_iaaddress_verify(struct dhcp6_opt_iaaddr *iaaddr,
 	iaaddr->iaaddr_addr.sin6_len = sizeof(struct sockaddr_in6);
 	iaaddr->iaaddr_addr.sin6_family = PF_INET6;
 
-	if (memcpy(&iaaddr->iaaddr_pltime, data, sizeof(iaaddr->iaaddr_pltime)) == NULL)
-		return (-1);
-	ntohl(iaaddr->iaaddr_pltime);
-	data += sizeof(iaaddr->iaaddr_pltime);
-
 	if (memcpy(&iaaddr->iaaddr_vltime, data, sizeof(iaaddr->iaaddr_vltime)) == NULL)
 		return (-1);
 	ntohl(iaaddr->iaaddr_vltime);
 	data += sizeof(iaaddr->iaaddr_vltime);
+
+	if (memcpy(&iaaddr->iaaddr_pltime, data, sizeof(iaaddr->iaaddr_pltime)) == NULL)
+		return (-1);
+	ntohl(iaaddr->iaaddr_pltime);
+	data += sizeof(iaaddr->iaaddr_pltime);
 
 	if (iaaddr->iaaddr_pltime > iaaddr->iaaddr_vltime)
 		return (-1);

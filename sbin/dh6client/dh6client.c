@@ -531,7 +531,7 @@ configure_interface(struct imsg_configure_address *address)
 	time_t			 t;
 	char			*if_name;
 
-	memset(&in6_addreq, 0, sizeof(in6_addreq));
+	bzero(&in6_addreq, sizeof(in6_addreq));
 
 	if_name = if_indextoname(address->if_index, in6_addreq.ifra_name);
 	if (if_name == NULL) {
@@ -558,7 +558,8 @@ configure_interface(struct imsg_configure_address *address)
 
 	in6_addreq.ifra_flags |= IN6_IFF_AUTOCONF;
 
-	log_debug("%s: %s", __func__, if_name);
+	log_debug("%s: writing to %s, %u %u", __func__, if_name,
+	    address->vltime, address->pltime);
 
 	if (ioctl(ioctl_sock, SIOCAIFADDR_IN6, &in6_addreq) == -1)
 		fatal("SIOCAIFADDR_IN6");
