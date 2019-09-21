@@ -64,7 +64,6 @@ buf_write(uint8_t **to, void *from, size_t from_len, size_t *len)
 int
 buf_get(void *to, uint8_t **from, size_t to_len, size_t *len)
 {
-	print_hex(*from, 0, to_len);
 	if (*len < to_len) {
 		log_debug("%s: invalid length, %zu > %zu", __func__, *len,
 		    to_len);
@@ -407,7 +406,6 @@ dhcp6_options_parse(struct dhcp6_options *opts, uint8_t* data, size_t length,
 	size_t			 count = 0;
 
 	while (length > 0 && count < DHCP6_OPTIONS_MAX) {
-		log_info("%s: length: %zu", __func__, length);
 		if ((opt = calloc(1, sizeof(*opt))) == NULL) {
 			log_warn("Failed calloc.\n");
 			return (NULL);

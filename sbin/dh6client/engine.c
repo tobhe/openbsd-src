@@ -342,7 +342,6 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 
 				/* XXX: Always Rapid-Commit */
 				iface->options |= DH6CLIENT_IFACE_OPTION_RAPID;
-
 				iface->state = IF_DELAY;
 				iface->probes = 0;
 
@@ -397,6 +396,10 @@ iface_timeout(int fd, short events, void *arg)
 	switch (iface->state) {
 		case IF_DELAY:
 		case IF_PROBE:
+			if (iface->probes == 0) {
+				if (gettimeofday(&iface->start_time, NULL) == -1)
+					fatal("gettimeofday");
+			}
 			if (dh6client_send_solicit(iface) == -1) {
 				/* XXX: Handle with UPDATE_IF message */
 				log_debug("%s: iface %d failed, disabling",
@@ -435,6 +438,7 @@ dh6client_send_solicit(struct dh6client_iface *iface)
 	struct dhcp6_msg	*msg;
 	struct imsg_dhcp6	 imsg;
 	uint16_t		 time;
+	struct timeval		 tv;
 
 	if ((msg = dhcp6_msg_init(DHCP6_MSG_TYPE_SOLICIT)) == NULL)
 		return (-1);
@@ -445,7 +449,10 @@ dh6client_send_solicit(struct dh6client_iface *iface)
 		return (-1);
 
 	/* Mandatory elapsed time option */
-	time = 0;
+	if (gettimeofday(&tv, NULL) == -1)
+		return (-1);
+	time = (tv.tv_sec - iface->start_time.tv_sec) * 1000000L
+	    + tv.tv_usec - iface->start_time.tv_usec;
 	if (dhcp6_options_add_option(&msg->msg_options, DHCP6_OPTION_ELAPSED_TIME,
 	    &time, sizeof(time)) == -1)
 		return (-1);
