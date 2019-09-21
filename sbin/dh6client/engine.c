@@ -94,6 +94,7 @@ static void		 engine_dispatch_frontend(int, short, void *);
 static int		 engine_get_duid(char *, struct dhcp6_duid *);
 
 void			 iface_timeout(int, short, void *);
+void			 iface_remove(uint32_t);
 struct dh6client_iface	*get_dh6client_iface_by_id(uint32_t);
 int			 dh6client_parse(struct imsg_dhcp6 *);
 void			 configure_address(struct dh6client_iface *i,
@@ -297,6 +298,7 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 	ssize_t			 n;
 	int			 shut = 0;
 	struct timeval		 tv;
+	uint32_t		 if_index;
 
 	if (event & EV_READ) {
 		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
@@ -369,6 +371,13 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 				}
 			}
 			break;
+		case IMSG_REMOVE_IF:
+			if (IMSG_DATA_SIZE(imsg) != sizeof(if_index))
+				fatalx("%s: IMSG_REMOVE_IF wrong length: %lu",
+				    __func__, IMSG_DATA_SIZE(imsg));
+			memcpy(&if_index, imsg.data, sizeof(if_index));
+			iface_remove(if_index);
+			break;
 		default:
 			if (IMSG_DATA_SIZE(imsg) != sizeof(dhcp6))
 			log_debug("%s: unexpected imsg %d", __func__,
@@ -384,6 +393,21 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 		event_del(&iev->ev);
 		event_loopexit(NULL);
 	}
+}
+
+void
+iface_remove(uint32_t if_index)
+{
+	struct dh6client_iface	*iface;
+
+	iface = get_dh6client_iface_by_id(if_index);
+
+	if (iface == NULL)
+		return;
+
+	LIST_REMOVE(iface, entries);
+	evtimer_del(&iface->timer);
+	free(iface);
 }
 
 void

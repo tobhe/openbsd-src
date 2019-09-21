@@ -96,6 +96,7 @@ enum imsg_type {
 	IMSG_STARTUP,
 	IMSG_STARTUP_DONE,
 	IMSG_UPDATE_IF,
+	IMSG_REMOVE_IF,
 	IMSG_ROUTESOCK,
 };
 
@@ -119,6 +120,14 @@ struct imsg_dhcp6 {
 };
 
 struct imsg_configure_address {
+	uint32_t		 if_index;
+	struct sockaddr_in6	 addr;
+	struct in6_addr		 mask;
+	uint32_t		 vltime;
+	uint32_t		 pltime;
+};
+
+struct imsg_delete_address {
 	uint32_t		 if_index;
 	struct sockaddr_in6	 addr;
 	struct in6_addr		 mask;

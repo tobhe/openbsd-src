@@ -69,6 +69,7 @@ int		 if_get_hwaddr(char *, struct ether_addr *);
 void		 if_update(uint32_t, char*);
 void		 route_receive(int, short, void *);
 void		 dh6client_recv(int, short, void *);
+void		 handle_route_message(struct rt_msghdr *);
 
 struct sockaddr_in6		*alldhcp6;
 struct imsgev			*iev_main;
@@ -327,7 +328,6 @@ route_receive(int fd, short events, void *arg)
 	static uint8_t			 *buf;
 
 	struct rt_msghdr		*rtm;
-	struct sockaddr			*sa, *rti_info[RTAX_MAX];
 	ssize_t				 n;
 
 	if (buf == NULL) {
@@ -354,12 +354,44 @@ route_receive(int fd, short events, void *arg)
 	if (rtm->rtm_version != RTM_VERSION)
 		return;
 
-	log_info("Got routing message!");
+	handle_route_message(rtm);
+}
 
-	// sa = (struct sockaddr *)(buf + rtm->rtm_hdrlen);
-	// get_rtaddrs(rtm->rtm_addrs, sa, rti_info);
+void
+handle_route_message(struct rt_msghdr *rtm)
+{
+	struct if_msghdr		*ifm;
+	int				 xflags, if_index;
+	char				 ifnamebuf[IFNAMSIZ];
+	char				*if_name;
 
-	// handle_route_message(rtm, rti_info);
+	switch (rtm->rtm_type) {
+	case RTM_IFINFO:
+		ifm = (struct if_msghdr *)rtm;
+		if_name = if_indextoname(ifm->ifm_index, ifnamebuf);
+		if (if_name == NULL) {
+			log_debug("RTM_IFINFO: lost if %d", ifm->ifm_index);
+			if_index = ifm->ifm_index;
+			frontend_imsg_compose_engine(IMSG_REMOVE_IF, 0, 0,
+			    &if_index, sizeof(if_index));
+		} else {
+			xflags = if_get_xflags(if_name);
+			if (xflags == -1 || !(xflags & IFXF_AUTOCONF6)) {
+				log_debug("RTM_IFINFO: %s(%d) no(longer) "
+				   "autoconf6", if_name, ifm->ifm_index);
+				if_index = ifm->ifm_index;
+				frontend_imsg_compose_engine(IMSG_REMOVE_IF, 0,
+				    0, &if_index, sizeof(if_index));
+			} else {
+				if_update(ifm->ifm_index, if_name);
+			}
+		}
+		break;
+	default:
+		log_debug("unexpected RTM: %d", rtm->rtm_type);
+		break;
+	}
+
 }
 
 static int
@@ -505,6 +537,8 @@ if_update(uint32_t if_index, char* if_name)
 		return;
 	}
 
+	log_debug("%s: updating interface %s.",
+	    __func__, if_name);
 	frontend_imsg_compose_engine(IMSG_UPDATE_IF, 0, 0, &imsg_ifinfo,
 	    sizeof(imsg_ifinfo));
 }
