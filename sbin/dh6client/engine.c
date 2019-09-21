@@ -96,6 +96,8 @@ static int		 engine_get_duid(char *, struct dhcp6_duid *);
 void			 iface_timeout(int, short, void *);
 struct dh6client_iface	*get_dh6client_iface_by_id(uint32_t);
 int			 dh6client_parse(struct imsg_dhcp6 *);
+void			 configure_address(struct dh6client_iface *i,
+			    struct dhcp6_opt_iaaddr *);
 
 struct imsgev		*iev_frontend;
 struct imsgev		*iev_main;
@@ -432,6 +434,42 @@ get_dh6client_iface_by_id(uint32_t if_index)
 	return (NULL);
 }
 
+void
+configure_address(struct dh6client_iface *iface, struct dhcp6_opt_iaaddr *iaaddr)
+{
+	struct imsg_configure_address	 address;
+	struct timeval			 tv;
+	time_t				 lifetime;
+	int				 next_timeout;
+
+	address.if_index = iface->if_index;
+	memset(&address.mask.s6_addr, 0xff, 16);
+	address.addr = iaaddr->iaaddr_addr;
+	address.pltime = iaaddr->iaaddr_pltime;
+	address.vltime = iaaddr->iaaddr_vltime;
+
+	next_timeout = 0;
+	if (address.pltime > MAX_DHCP6_SOLICITATIONS *
+	    (DHCP6_SOLICITATION_INTERVAL + 1))
+		lifetime = address.pltime;
+	else
+		lifetime = address.vltime;
+
+	if (lifetime > MAX_DHCP6_SOLICITATIONS *
+	    (DHCP6_SOLICITATION_INTERVAL + 1)) {
+		next_timeout = lifetime - MAX_DHCP6_SOLICITATIONS *
+		    (DHCP6_SOLICITATION_INTERVAL + 1);
+		tv.tv_sec = next_timeout;
+		tv.tv_usec = arc4random_uniform(1000000);
+		evtimer_add(&iface->timer, &tv);
+		log_debug("%s: %d, scheduling new timeout in %llds.%06ld",
+		    __func__, iface->if_index, tv.tv_sec, tv.tv_usec);
+	}
+
+	engine_imsg_compose_main(IMSG_CONFIGURE_ADDRESS, 0,
+	    &address, sizeof(address));
+}
+
 int
 dh6client_send_solicit(struct dh6client_iface *iface)
 {
@@ -473,7 +511,9 @@ dh6client_send_solicit(struct dh6client_iface *iface)
 		return (-1);
 
 	if (log_getverbose()) {
+		log_debug("%s: Sending solicit message:", __func__);
 		dhcp6_msg_print(msg);
+		log_debug("%s: Binary representation:", __func__);
 		print_hex(imsg.packet, 0, imsg.len);
 	}
 
@@ -490,7 +530,6 @@ dh6client_parse(struct imsg_dhcp6 *dhcp6)
 	struct dh6client_iface		*iface;
 	struct dhcp6_msg		*msg;
 	struct dhcp6_option		*opt;
-	struct imsg_configure_address	 address;
 	struct dhcp6_opt_iaaddr		 iaaddr;
 	char				 buffer[INET6_ADDRSTRLEN];
 	const char			*ptr;
@@ -535,16 +574,7 @@ dh6client_parse(struct imsg_dhcp6 *dhcp6)
 			/* Configure Address  */
 			dhcp6_options_iaaddress_verify(&iaaddr, opt->option_data);
 
-			address.if_index = iface->if_index;
-			memset(&address.mask.s6_addr, 0xff, 16);
-			address.addr = iaaddr.iaaddr_addr;
-			address.pltime = iaaddr.iaaddr_pltime;
-			address.vltime = iaaddr.iaaddr_vltime;
-
-			engine_imsg_compose_main(IMSG_CONFIGURE_ADDRESS, 0,
-			    &address, sizeof(address));
-
-			iface->state = IF_IDLE;
+			configure_address(iface, &iaaddr);
 		} else {
 			/* Four message handshake */
 

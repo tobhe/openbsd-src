@@ -28,6 +28,7 @@
 #include <sys/wait.h>
 
 #include <net/if.h>
+#include <net/route.h>
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
 #include <netinet6/in6_var.h>
@@ -110,6 +111,7 @@ main(int argc, char *argv[])
 	int			 pipe_main2frontend[2];
 	int			 pipe_main2engine[2];
 	int			 dhcp6sock, on = 1, error;
+	int			 frontend_routesock, rtfilter;
 	struct addrinfo		 hints, *res;
 
 	log_init(1, LOG_DAEMON);	/* Log to stderr until daemonized. */
@@ -254,10 +256,22 @@ main(int argc, char *argv[])
 		fatalx("%s: getaddrinfo: %s", __func__, strerror(errno));
 	freeaddrinfo(res);
 
+	if ((frontend_routesock = socket(AF_ROUTE, SOCK_RAW | SOCK_CLOEXEC,
+	    AF_INET6)) == -1)
+		fatal("route socket");
+
+	rtfilter = ROUTE_FILTER(RTM_IFINFO) | ROUTE_FILTER(RTM_NEWADDR) |
+	    ROUTE_FILTER(RTM_DELADDR) | ROUTE_FILTER(RTM_CHGADDRATTR);
+	if (setsockopt(frontend_routesock, AF_ROUTE, ROUTE_MSGFILTER,
+	    &rtfilter, sizeof(rtfilter)) == -1)
+		fatal("setsockopt(ROUTE_MSGFILTER)");
+
 	if (pledge("stdio sendfd wroute", NULL) == -1)
 		fatal("pledge");
 
 	main_imsg_compose_frontend_fd(IMSG_DHCP6SOCK, 0, dhcp6sock);
+
+	main_imsg_compose_frontend_fd(IMSG_ROUTESOCK, 0, frontend_routesock);
 
 	main_imsg_compose_frontend(IMSG_STARTUP, 0, NULL, 0);
 

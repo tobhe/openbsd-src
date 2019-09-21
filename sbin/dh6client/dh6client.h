@@ -96,6 +96,7 @@ enum imsg_type {
 	IMSG_STARTUP,
 	IMSG_STARTUP_DONE,
 	IMSG_UPDATE_IF,
+	IMSG_ROUTESOCK,
 };
 
 enum {

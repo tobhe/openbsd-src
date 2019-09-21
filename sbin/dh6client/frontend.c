@@ -29,6 +29,7 @@
 #include <net/if.h>
 #include <net/if_types.h>
 #include <net/if_dl.h>
+#include <net/route.h>
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
 #include <netinet/ip6.h>
@@ -48,7 +49,7 @@
 #include "dh6client.h"
 #include "dhcp6.h"
 
-
+#define	ROUTE_SOCKET_BUF_SIZE	16384
 #define	ALLDHCP6		"ff02::1:2"
 
 __dead static void	 frontend_shutdown(void);
@@ -66,12 +67,13 @@ int		 if_get_flags(char *);
 int		 if_get_xflags(char *);
 int		 if_get_hwaddr(char *, struct ether_addr *);
 void		 if_update(uint32_t, char*);
+void		 route_receive(int, short, void *);
+void		 dh6client_recv(int, short, void *);
 
-void		 dh6client_recv(int fd, short events, void *arg);
-
+struct sockaddr_in6		*alldhcp6;
 struct imsgev			*iev_main;
 struct imsgev			*iev_engine;
-struct sockaddr_in6		*alldhcp6;
+struct event			 ev_route;
 int				 dhcp6sock = -1, ioctlsock;
 struct msghdr			 sndmhdr;
 struct iovec			 sndiov[2];
@@ -290,6 +292,14 @@ frontend_dispatch_main(int fd, short event, void *bula)
 			event_set(&dhcp6ev.ev, dhcp6sock, EV_READ | EV_PERSIST,
 			    dh6client_recv, NULL);
 			break;
+		case IMSG_ROUTESOCK:
+			if ((fd = imsg.fd) == -1)
+				fatalx("%s: expected to receive imsg "
+				    "routesocket fd but didn't receive any",
+				    __func__);
+			event_set(&ev_route, fd, EV_READ | EV_PERSIST,
+			    route_receive, NULL);
+			break;
 		case IMSG_STARTUP:
 			if (pledge("stdio unix route", NULL) == -1)
 				fatal("pledge");
@@ -309,6 +319,47 @@ frontend_dispatch_main(int fd, short event, void *bula)
 		event_del(&iev->ev);
 		event_loopexit(NULL);
 	}
+}
+
+void
+route_receive(int fd, short events, void *arg)
+{
+	static uint8_t			 *buf;
+
+	struct rt_msghdr		*rtm;
+	struct sockaddr			*sa, *rti_info[RTAX_MAX];
+	ssize_t				 n;
+
+	if (buf == NULL) {
+		buf = malloc(ROUTE_SOCKET_BUF_SIZE);
+		if (buf == NULL)
+			fatal("malloc");
+	}
+	rtm = (struct rt_msghdr *)buf;
+	if ((n = read(fd, buf, ROUTE_SOCKET_BUF_SIZE)) == -1) {
+		if (errno == EAGAIN || errno == EINTR)
+			return;
+		log_warn("dispatch_rtmsg: read error");
+		return;
+	}
+
+	if (n == 0)
+		fatal("routing socket closed");
+
+	if (n < (ssize_t)sizeof(rtm->rtm_msglen) || n < rtm->rtm_msglen) {
+		log_warnx("partial rtm of %zd in buffer", n);
+		return;
+	}
+
+	if (rtm->rtm_version != RTM_VERSION)
+		return;
+
+	log_info("Got routing message!");
+
+	// sa = (struct sockaddr *)(buf + rtm->rtm_hdrlen);
+	// get_rtaddrs(rtm->rtm_addrs, sa, rti_info);
+
+	// handle_route_message(rtm, rti_info);
 }
 
 static int
@@ -462,6 +513,12 @@ static void
 frontend_startup(void)
 {
 	struct if_nameindex	*ifnidxp, *ifnidx;
+
+	if (!event_initialized(&ev_route))
+		fatalx("%s: did not receive a route socket from the main "
+		    "process", __func__);
+
+	event_add(&ev_route, NULL);
 
 	if (!event_initialized(&dhcp6ev.ev))
 		fatalx("%s: did not receive a dhcp6 socket fd from the main "
