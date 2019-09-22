@@ -95,10 +95,11 @@ static int		 engine_get_duid(char *, struct dhcp6_duid *);
 
 void			 iface_timeout(int, short, void *);
 void			 iface_remove(uint32_t);
-struct dh6client_iface	*get_dh6client_iface_by_id(uint32_t);
-int			 dh6client_parse(struct imsg_dhcp6 *);
-void			 configure_address(struct dh6client_iface *i,
+void			 iface_configure(struct dh6client_iface *i,
 			    struct dhcp6_opt_iaaddr *);
+struct dh6client_iface	*iface_get_by_id(uint32_t);
+
+int			 dh6client_parse(struct imsg_dhcp6 *);
 
 struct imsgev		*iev_frontend;
 struct imsgev		*iev_main;
@@ -333,7 +334,7 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 				    __func__, IMSG_DATA_SIZE(imsg));
 			memcpy(&imsg_ifinfo, imsg.data, sizeof(imsg_ifinfo));
 
-			iface = get_dh6client_iface_by_id(imsg_ifinfo.if_index);
+			iface = iface_get_by_id(imsg_ifinfo.if_index);
 			if (iface == NULL) {
 				if ((iface = calloc(1, sizeof(*iface))) == NULL)
 					fatal("calloc");
@@ -362,12 +363,25 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 				int need_refresh = 0;
 
 				if (memcmp(&iface->hw_address,
-					    &imsg_ifinfo.hw_address,
-					    sizeof(struct ether_addr)) != 0) {
+				     &imsg_ifinfo.hw_address,
+				     sizeof(struct ether_addr)) != 0) {
 					memcpy(&iface->hw_address,
 					    &imsg_ifinfo.hw_address,
 					    sizeof(struct ether_addr));
 					need_refresh = 1;
+				}
+
+				bzero(&tv, sizeof(tv));
+				if (iface->state != IF_DOWN &&
+				    imsg_ifinfo.running && need_refresh)
+					evtimer_add(&iface->timer, &tv);
+
+				iface->running = imsg_ifinfo.running;
+				if (!iface->running) {
+					iface->state = IF_DOWN;
+					if (evtimer_pending(&iface->timer,
+					    NULL))
+						evtimer_del(&iface->timer);
 				}
 			}
 			break;
@@ -400,7 +414,7 @@ iface_remove(uint32_t if_index)
 {
 	struct dh6client_iface	*iface;
 
-	iface = get_dh6client_iface_by_id(if_index);
+	iface = iface_get_by_id(if_index);
 
 	if (iface == NULL)
 		return;
@@ -448,7 +462,7 @@ iface_timeout(int fd, short events, void *arg)
 }
 
 struct dh6client_iface*
-get_dh6client_iface_by_id(uint32_t if_index)
+iface_get_by_id(uint32_t if_index)
 {
 	struct dh6client_iface	*iface;
 	LIST_FOREACH (iface, &dh6client_interfaces, entries) {
@@ -459,7 +473,7 @@ get_dh6client_iface_by_id(uint32_t if_index)
 }
 
 void
-configure_address(struct dh6client_iface *iface, struct dhcp6_opt_iaaddr *iaaddr)
+iface_configure(struct dh6client_iface *iface, struct dhcp6_opt_iaaddr *iaaddr)
 {
 	struct imsg_configure_address	 address;
 	struct timeval			 tv;
@@ -519,16 +533,24 @@ dh6client_send_solicit(struct dh6client_iface *iface)
 	    &time, sizeof(time)) == -1)
 		return (-1);
 
-	/* Request Address  */
+	/* Request Address */
 	if (dhcp6_options_add_iana(&msg->msg_options, 0, 0, 0) == NULL)
 		return (-1);
+
+	// /* Request Prefix */
+	// if (dhcp6_options_add_iapd(&msg->msg_options, 1, 0, 0) == NULL) {
+	// 	log_warn("%s: failed to add IA_PD option", __func__);
+	// 	return (-1);
+	// }
 
 	if (iface->options & DH6CLIENT_IFACE_OPTION_RAPID)
 		dhcp6_options_add_option(&msg->msg_options,
 		    DHCP6_OPTION_RAPID_COMMIT, NULL, 0);
 
-	if ((imsg.len = dhcp6_msg_serialize(msg, imsg.packet, 1500)) == -1)
+	if ((imsg.len = dhcp6_msg_serialize(msg, imsg.packet, 1500)) == -1) {
+		log_warn("%s: failed to convert msg to binary.", __func__);
 		return (-1);
+	}
 
 	/* Check correctness by parsing */
 	if (dhcp6_msg_parse(imsg.packet, imsg.len) == NULL)
@@ -558,7 +580,7 @@ dh6client_parse(struct imsg_dhcp6 *dhcp6)
 	char				 buffer[INET6_ADDRSTRLEN];
 	const char			*ptr;
 
-	iface = get_dh6client_iface_by_id(dhcp6->if_index);
+	iface = iface_get_by_id(dhcp6->if_index);
 	if (iface == NULL) {
 		log_warn("%s: interface unknown.", __func__);
 		return (-1);
@@ -574,34 +596,55 @@ dh6client_parse(struct imsg_dhcp6 *dhcp6)
 
 	switch(msg->msg_type) {
 	case DHCP6_MSG_TYPE_ADVERTISE:
+		/* Rapid two message handshake */
 		if (iface->options & DH6CLIENT_IFACE_OPTION_RAPID) {
-			/* Rapid two message handshake */
+			/* Configure IA_NA address */
 			if ((opt = dhcp6_options_get_option(&msg->msg_options,
-			    DHCP6_OPTION_IANA)) == NULL) {
-				log_debug("%s: No IA_NA option included.",
-				    __func__);
-				return (-1);
+			    DHCP6_OPTION_IANA)) != NULL) {
+
+				if ((opt = dhcp6_options_get_option(&opt->option_options,
+				    DHCP6_OPTION_IAADDR)) == NULL) {
+					log_warn("%s: IA_NA without address.",
+					    __func__);
+					return (0);
+				}
+				if ((ptr = inet_ntop(AF_INET6, opt->option_data,
+				    buffer, sizeof(buffer))) == NULL)
+					return (-1);
+
+				log_info("%s: Obtained IA_NA IPv6 address: %s on iface %d",
+				    __func__, ptr, iface->if_index);
+
+				/* Configure Address  */
+				dhcp6_options_iaaddress_verify(&iaaddr, opt->option_data);
+				iface_configure(iface, &iaaddr);
 			}
-			if ((opt = dhcp6_options_get_option(&opt->option_options,
-			    DHCP6_OPTION_IAADDR)) == NULL) {
-				log_debug("%s: No IA_ADDRESS option included.",
-				    __func__);
-				return (-1);
+
+			/* Configure IA_PD prefix */
+			if ((opt = dhcp6_options_get_option(&msg->msg_options,
+			    DHCP6_OPTION_IAPD)) != NULL) {
+				if ((opt = dhcp6_options_get_option(&opt->option_options,
+				    DHCP6_OPTION_IAPREFIX)) == NULL) {
+					log_warn("%s: IA_PD without prefix.",
+					    __func__);
+					return (0);
+				}
+				if ((ptr = inet_ntop(AF_INET6, opt->option_data,
+				    buffer, sizeof(buffer))) == NULL)
+					return (-1);
+
+				log_info("%s: Obtained IA_PD IPv6 prefix on iface %d",
+				    __func__, iface->if_index);
+
+				/* Configure Prefix  */
+				dhcp6_options_iaprefix_verify(&iaaddr,
+				    opt->option_data);
+				iface_configure(iface, &iaaddr);
 			}
-
-			if ((ptr = inet_ntop(AF_INET6, opt->option_data, buffer,
-			    sizeof(buffer))) == NULL)
-				return (-1);
-			log_info("%s: Obtained IA_NA IPv6 address: %s on iface %d",
-			    __func__, ptr, iface->if_index);
-
-			/* Configure Address  */
-			dhcp6_options_iaaddress_verify(&iaaddr, opt->option_data);
-
-			configure_address(iface, &iaaddr);
 		} else {
 			/* Four message handshake */
-
+			log_warn("%s: Four message handshake not supported.",
+			    __func__);
 		}
 		break;
 	default:

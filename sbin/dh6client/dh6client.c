@@ -442,7 +442,7 @@ main_dispatch_engine(int fd, short event, void *bula)
 				    "length: %lu", __func__,
 				    IMSG_DATA_SIZE(imsg));
 			memcpy(&address, imsg.data, sizeof(address));
-			configure_interface(&address);
+			dh6client_iface_configure(&address);
 			break;
 		default:
 			log_debug("%s: error handling imsg %d", __func__,
@@ -537,7 +537,7 @@ main_imsg_compose_engine(int type, pid_t pid, void *data, uint16_t datalen)
 }
 
 void
-configure_interface(struct imsg_configure_address *address)
+dh6client_iface_configure(struct imsg_configure_address *address)
 {
 	struct in6_aliasreq	 in6_addreq;
 	time_t			 t;
@@ -571,7 +571,7 @@ configure_interface(struct imsg_configure_address *address)
 	in6_addreq.ifra_flags |= IN6_IFF_AUTOCONF;
 
 	log_debug("%s: writing to %s, %u %u", __func__, if_name,
-	    address->vltime, address->pltime);
+	    address->pltime, address->vltime);
 
 	if (ioctl(ioctl_sock, SIOCAIFADDR_IN6, &in6_addreq) == -1)
 		fatal("SIOCAIFADDR_IN6");

@@ -26,6 +26,9 @@
 #include <netinet/if_ether.h>
 #include <netinet/in.h>
 
+#define DHCP6_EXCHANGE_SOLICIT	(1)
+#define DHCP6_OPTION_HDR_SIZE	(4u)
+
 struct dhcp6_iana {
 	uint32_t	 iana_iaid;
 	uint32_t	 iana_t1;
@@ -71,6 +74,7 @@ struct dhcp6_opt_iana {
 
 struct dhcp6_opt_iaaddr {
 	struct sockaddr_in6		iaaddr_addr;
+	uint8_t				iaaddr_plen;
 	uint32_t			iaaddr_pltime;
 	uint32_t			iaaddr_vltime;
 };
@@ -94,15 +98,21 @@ struct dhcp6_msg {
 #define DHCP6_OPTION_IAADDR		(5)
 #define DHCP6_OPTION_ELAPSED_TIME	(8)
 #define DHCP6_OPTION_RAPID_COMMIT	(14)
+#define DHCP6_OPTION_IAPD		(25)
+#define DHCP6_OPTION_IAPREFIX		(26)
 
 int			 dhcp6_options_add_option(struct dhcp6_options *, int,
 			    void *, size_t);
 struct dhcp6_options	*dhcp6_options_add_iana(struct dhcp6_options *, uint32_t,
 			    uint32_t, uint32_t);
+struct dhcp6_options	*dhcp6_options_add_iapd(struct dhcp6_options *, uint32_t,
+			    uint32_t, uint32_t);
 struct dhcp6_options	*dhcp6_options_add_ia_addr(struct dhcp6_options *);
 struct dhcp6_option *	 dhcp6_options_get_option(struct dhcp6_options *opts,
 			    int);
 int			 dhcp6_options_iaaddress_verify(struct dhcp6_opt_iaaddr *,
+			    uint8_t *);
+int			 dhcp6_options_iaprefix_verify(struct dhcp6_opt_iaaddr *,
 			    uint8_t *);
 ssize_t			 dhcp6_msg_serialize(struct dhcp6_msg *, uint8_t *,
 			    ssize_t);

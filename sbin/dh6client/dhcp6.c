@@ -46,7 +46,7 @@ static int	buf_get(void *to, uint8_t **from, size_t to_len, size_t *len);
 
 static struct dhcp6_options *
 		dhcp6_options_parse(struct dhcp6_options *, uint8_t*, size_t, int);
-static ssize_t	dhcp6_options_serialize(uint8_t *, struct dhcp6_options *, int);
+static ssize_t	dhcp6_options_serialize(uint8_t **, ssize_t, struct dhcp6_options *, int);
 static size_t	dhcp6_options_get_length(struct dhcp6_options *, int);
 static void	dhcp6_options_free(struct dhcp6_options *, int);
 
@@ -54,10 +54,12 @@ static void	dhcp6_options_free(struct dhcp6_options *, int);
 int
 buf_write(uint8_t **to, void *from, size_t from_len, size_t *len)
 {
+	if (from_len > *len)
+		return (-1);
 	if (memcpy(*to, from, from_len) == NULL)
 		return (-1);
 	*to += from_len;
-	*len += from_len;
+	*len -= from_len;
 	return (0);
 }
 
@@ -190,6 +192,7 @@ dhcp6_options_iaaddress_verify(struct dhcp6_opt_iaaddr *iaaddr,
 {
 	bzero(iaaddr, sizeof(*iaaddr));
 
+	/* Address */
 	if (memcpy(&iaaddr->iaaddr_addr.sin6_addr, data,
 	    sizeof(iaaddr->iaaddr_addr.sin6_addr)) == NULL)
 		return (-1);
@@ -197,11 +200,51 @@ dhcp6_options_iaaddress_verify(struct dhcp6_opt_iaaddr *iaaddr,
 	iaaddr->iaaddr_addr.sin6_len = sizeof(struct sockaddr_in6);
 	iaaddr->iaaddr_addr.sin6_family = PF_INET6;
 
+	/* T1 */
+	if (memcpy(&iaaddr->iaaddr_vltime, data, sizeof(iaaddr->iaaddr_vltime)) == NULL)
+		return (-1);
+	iaaddr->iaaddr_vltime = ntohl(iaaddr->iaaddr_vltime);
+	data += sizeof(iaaddr->iaaddr_vltime);
+
+	/* T2 */
+	if (memcpy(&iaaddr->iaaddr_pltime, data, sizeof(iaaddr->iaaddr_pltime)) == NULL)
+		return (-1);
+	iaaddr->iaaddr_pltime = ntohl(iaaddr->iaaddr_pltime);
+	data += sizeof(iaaddr->iaaddr_pltime);
+
+	if (iaaddr->iaaddr_pltime > iaaddr->iaaddr_vltime)
+		return (-1);
+
+	return (0);
+}
+
+int
+dhcp6_options_iaprefix_verify(struct dhcp6_opt_iaaddr *iaaddr,
+    uint8_t *data)
+{
+	bzero(iaaddr, sizeof(*iaaddr));
+
+	/* Prefix */
+	if (memcpy(&iaaddr->iaaddr_plen, data,
+	    sizeof(iaaddr->iaaddr_plen)) == NULL)
+		return (-1);
+	data += sizeof(iaaddr->iaaddr_plen);
+
+	/* Address */
+	if (memcpy(&iaaddr->iaaddr_addr.sin6_addr, data,
+	    sizeof(iaaddr->iaaddr_addr.sin6_addr)) == NULL)
+		return (-1);
+	data += sizeof(iaaddr->iaaddr_addr.sin6_addr);
+	iaaddr->iaaddr_addr.sin6_len = sizeof(struct sockaddr_in6);
+	iaaddr->iaaddr_addr.sin6_family = PF_INET6;
+
+	/* T1 */
 	if (memcpy(&iaaddr->iaaddr_vltime, data, sizeof(iaaddr->iaaddr_vltime)) == NULL)
 		return (-1);
 	ntohl(iaaddr->iaaddr_vltime);
 	data += sizeof(iaaddr->iaaddr_vltime);
 
+	/* T2 */
 	if (memcpy(&iaaddr->iaaddr_pltime, data, sizeof(iaaddr->iaaddr_pltime)) == NULL)
 		return (-1);
 	ntohl(iaaddr->iaaddr_pltime);
@@ -212,6 +255,7 @@ dhcp6_options_iaaddress_verify(struct dhcp6_opt_iaaddr *iaaddr,
 
 	return (0);
 }
+
 
 /*
  * Add new option to list of options.
@@ -241,26 +285,54 @@ dhcp6_options_add_option(struct dhcp6_options *opts, int code, void *data,
 	return (0);
 }
 
-/*
- * Add new option of type IA_NA to list of options.
- */
 struct dhcp6_options *
 dhcp6_options_add_iana(struct dhcp6_options *opts, uint32_t id, uint32_t t1,
     uint32_t t2)
 {
 	struct dhcp6_option 	*opt;
-	struct dhcp6_opt_iana	*p;
+	uint8_t			*p;
+	size_t			 len;
 
 	if ((opt = calloc(1, sizeof(struct dhcp6_option))) == NULL)
 		return (NULL);
 
 	opt->option_code = DHCP6_OPTION_IANA;
-	opt->option_data_len = 12;
+	opt->option_data_len = len = 12;
 	opt->option_data = calloc(3, sizeof(uint32_t));
-	p = (struct dhcp6_opt_iana*)opt->option_data;
-	p->iana_id = id;
-	p->iana_t1 = t1;
-	p->iana_t2 = t2;
+	p = opt->option_data;
+	if (buf_write(&p, &id, sizeof(id), &len) == -1)
+		return (NULL);
+	if (buf_write(&p, &t1, sizeof(t1), &len) == -1)
+		return (NULL);
+	if (buf_write(&p, &t1, sizeof(t1), &len) == -1)
+		return (NULL);
+
+	TAILQ_INIT(&opt->option_options);
+	TAILQ_INSERT_TAIL(opts, opt, option_entry);
+
+	return (&opt->option_options);
+}
+
+struct dhcp6_options *
+dhcp6_options_add_iapd(struct dhcp6_options *opts, uint32_t id, uint32_t t1,
+    uint32_t t2)
+{
+	struct dhcp6_option 	*opt;
+	uint8_t			*p;
+	size_t			 len;
+	if ((opt = calloc(1, sizeof(struct dhcp6_option))) == NULL)
+		return (NULL);
+
+	opt->option_code = DHCP6_OPTION_IAPD;
+	opt->option_data_len = len = 12;
+	opt->option_data = calloc(3, sizeof(uint32_t));
+	p = opt->option_data;
+	if (buf_write(&p, &id, sizeof(id), &len) == -1)
+		return (NULL);
+	if (buf_write(&p, &t1, sizeof(t1), &len) == -1)
+		return (NULL);
+	if (buf_write(&p, &t1, sizeof(t1), &len) == -1)
+		return (NULL);
 
 	TAILQ_INIT(&opt->option_options);
 	TAILQ_INSERT_TAIL(opts, opt, option_entry);
@@ -315,7 +387,8 @@ dhcp6_options_get_length(struct dhcp6_options *opts, int depth)
 ssize_t
 dhcp6_msg_serialize(struct dhcp6_msg *msg, uint8_t *buf, ssize_t length)
 {
-	ssize_t			 total_len = 0, opt_len, rlen;
+	ssize_t			 rlen;
+	ssize_t			 left = length;
 
 	/* Calculate list lengths */
 	if ((rlen = dhcp6_options_get_length(&msg->msg_options, 0)) > length) {
@@ -325,49 +398,44 @@ dhcp6_msg_serialize(struct dhcp6_msg *msg, uint8_t *buf, ssize_t length)
 
 	/* Message Header */
 	if (buf_write(&buf, &msg->msg_type, sizeof(msg->msg_type),
-	    &total_len) == -1)
+	    &left) == -1)
 		return (-1);
 
 	if (buf_write(&buf, &msg->msg_transaction_id,
-	    sizeof(msg->msg_transaction_id), &total_len) == -1)
+	    sizeof(msg->msg_transaction_id), &left) == -1)
 		return (-1);
 
 	/* Options */
-	if ((opt_len = dhcp6_options_serialize(buf, &msg->msg_options, 0)) == -1)
+	if ((left = dhcp6_options_serialize(&buf, left, &msg->msg_options, 0)) == -1)
 		return (-1);
 
-	return (opt_len + total_len);
+	return (length - left);
 }
 
 ssize_t
-dhcp6_options_serialize(uint8_t *buf, struct dhcp6_options *opts, int depth)
+dhcp6_options_serialize(uint8_t **buf, ssize_t left, struct dhcp6_options *opts, int depth)
 {
 	struct dhcp6_option	*opt;
 	uint16_t		 h;
-	ssize_t			 total_len = 0, option_len, child_len;
 
 	/* Options */
 	TAILQ_FOREACH(opt, opts, option_entry) {
-		option_len = 0;
 		h = htons(opt->option_code);
-		if (buf_write(&buf, &h, sizeof(h), &option_len) == -1)
+		if (buf_write(buf, &h, sizeof(h), &left) == -1)
 			return (-1);
 		h = htons(opt->option_length);
-		if (buf_write(&buf, &h, sizeof(h), &option_len) == -1)
+		if (buf_write(buf, &h, sizeof(h), &left) == -1)
 			return (-1);
-		if (buf_write(&buf, opt->option_data, opt->option_data_len,
-		    &option_len) == -1)
+		if (buf_write(buf, opt->option_data, opt->option_data_len,
+		    &left) == -1)
 			return (-1);
 
 		if (!TAILQ_EMPTY(&opt->option_options) && ++depth < 3){
-			child_len = dhcp6_options_serialize(buf,
+			left = dhcp6_options_serialize(buf, left,
 			    &opt->option_options, depth);
-			buf += child_len;
-			option_len += child_len;
 		}
-		total_len += option_len;
 	}
-	return (total_len);
+	return (left);
 }
 
 struct dhcp6_msg *
@@ -429,10 +497,12 @@ dhcp6_options_parse(struct dhcp6_options *opts, uint8_t* data, size_t length,
 
 		switch(opt->option_code) {
 		case DHCP6_OPTION_IANA:
+		case DHCP6_OPTION_IAPD:
 			olen = 3 * sizeof(uint32_t);
 			opt->option_data = calloc(1, olen);
 			opt->option_data_len = olen;
-			buf_get(opt->option_data, &data, olen, &length);
+			if (buf_get(opt->option_data, &data, olen, &length) == -1)
+				return (NULL);
 			if (opt->option_length - olen > 0) {
 				/* Recursion depth limited to 3.*/
 				if (++depth > 2)
@@ -447,7 +517,8 @@ dhcp6_options_parse(struct dhcp6_options *opts, uint8_t* data, size_t length,
 			olen = 2 * sizeof(uint64_t) + 2 * sizeof(uint32_t);
 			opt->option_data = calloc(1, olen);
 			opt->option_data_len = olen;
-			buf_get(opt->option_data, &data, olen, &length);
+			if (buf_get(opt->option_data, &data, olen, &length) == -1)
+				return (NULL);
 			if (opt->option_length - olen > 0) {
 				/* Recursion depth limited to 3.*/
 				if (++depth > 2)
@@ -462,8 +533,9 @@ dhcp6_options_parse(struct dhcp6_options *opts, uint8_t* data, size_t length,
 			if (opt->option_length > 0 ) {
 				opt->option_data = calloc(1, opt->option_length);
 				opt->option_data_len = opt->option_length;
-				buf_get(opt->option_data, &data,
-				    opt->option_length, &length);
+				if (buf_get(opt->option_data, &data,
+				    opt->option_length, &length) == -1)
+					return (NULL);
 			}
 			break;
 		}
@@ -527,7 +599,4 @@ dhcp6_get_duid(struct ether_addr *mac,
 	}
 	return ret;
 }
-
-#define DHCP6_EXCHANGE_SOLICIT	(1)
-#define DHCP6_OPTION_HDR_SIZE	(4u)
 

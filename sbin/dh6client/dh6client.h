@@ -141,7 +141,7 @@ struct dhcp6_duid	 duid;
 void		 imsg_event_add(struct imsgev *);
 int		 imsg_compose_event(struct imsgev *, uint16_t, uint32_t, pid_t,
 		    int, void *, uint16_t);
-void		 configure_interface(struct imsg_configure_address *);
+void		 dh6client_iface_configure(struct imsg_configure_address *);
 
 /* util.c */
 void		 print_debug(const char *, ...);
