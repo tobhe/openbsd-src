@@ -128,8 +128,6 @@ main(int argc, char *argv[])
 			break;
 		case 't':
 			return test_parser();
-		case 'T':
-			return test_unit();
 		case 'E':
 			engine_flag = 1;
 			break;
