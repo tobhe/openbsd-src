@@ -570,7 +570,7 @@ dh6client_iface_configure(struct imsg_configure_address *address)
 
 	in6_addreq.ifra_flags |= IN6_IFF_AUTOCONF;
 
-	log_debug("%s: writing to %s, %u %u", __func__, if_name,
+	log_debug("iface%d: %s: %s, %u %u", __func__, if_name,
 	    address->pltime, address->vltime);
 
 	if (ioctl(ioctl_sock, SIOCAIFADDR_IN6, &in6_addreq) == -1)

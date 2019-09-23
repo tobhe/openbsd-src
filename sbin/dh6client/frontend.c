@@ -388,7 +388,6 @@ handle_route_message(struct rt_msghdr *rtm)
 		}
 		break;
 	default:
-		log_debug("unexpected RTM: %d", rtm->rtm_type);
 		break;
 	}
 

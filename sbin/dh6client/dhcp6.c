@@ -187,6 +187,27 @@ dhcp6_options_get_option(struct dhcp6_options *opts, int code)
 }
 
 int
+dhcp6_options_statuscode_verify(struct dhcp6_opt_statuscode *status,
+    uint8_t *p, size_t left)
+{
+	bzero(status, sizeof(*status));
+
+	/* Code */
+	if (buf_get(&status->status_code, &p, sizeof(status->status_code),
+	    &left) == -1)
+		return (-1);
+	status->status_code = htons(status->status_code);
+
+	/* Message */
+	status->status_msg = calloc(sizeof(char), left + 1);
+	if (buf_get(status->status_msg, &p, left, &left) == -1) {
+		free(status->status_msg);
+		return (-1);
+	}
+	return (0);
+}
+
+int
 dhcp6_options_iaaddress_verify(struct dhcp6_opt_iaaddr *iaaddr,
     uint8_t *data)
 {
@@ -241,13 +262,13 @@ dhcp6_options_iaprefix_verify(struct dhcp6_opt_iaaddr *iaaddr,
 	/* T1 */
 	if (memcpy(&iaaddr->iaaddr_vltime, data, sizeof(iaaddr->iaaddr_vltime)) == NULL)
 		return (-1);
-	ntohl(iaaddr->iaaddr_vltime);
+	iaaddr->iaaddr_vltime = ntohl(iaaddr->iaaddr_vltime);
 	data += sizeof(iaaddr->iaaddr_vltime);
 
 	/* T2 */
 	if (memcpy(&iaaddr->iaaddr_pltime, data, sizeof(iaaddr->iaaddr_pltime)) == NULL)
 		return (-1);
-	ntohl(iaaddr->iaaddr_pltime);
+	iaaddr->iaaddr_pltime = ntohl(iaaddr->iaaddr_pltime);
 	data += sizeof(iaaddr->iaaddr_pltime);
 
 	if (iaaddr->iaaddr_pltime > iaaddr->iaaddr_vltime)
@@ -255,7 +276,6 @@ dhcp6_options_iaprefix_verify(struct dhcp6_opt_iaaddr *iaaddr,
 
 	return (0);
 }
-
 
 /*
  * Add new option to list of options.
@@ -340,9 +360,25 @@ dhcp6_options_add_iapd(struct dhcp6_options *opts, uint32_t id, uint32_t t1,
 	return (&opt->option_options);
 }
 
-/*
- * Add new option of type IA_ADDRESS to list of options.
- */
+struct dhcp6_options *
+dhcp6_options_add_ia_prefix(struct dhcp6_options *opts, uint8_t prefixlen)
+{
+	struct dhcp6_option 	*opt;
+
+	if ((opt = calloc(1, sizeof(struct dhcp6_option))) == NULL)
+		return (NULL);
+
+	opt->option_code = DHCP6_OPTION_IAPREFIX;
+	opt->option_data_len = 25;
+	opt->option_data = calloc(sizeof(uint8_t), 25);
+	*opt->option_data = prefixlen;
+
+	TAILQ_INIT(&opt->option_options);
+	TAILQ_INSERT_TAIL(opts, opt, option_entry);
+
+	return (&opt->option_options);
+}
+
 struct dhcp6_options *
 dhcp6_options_add_ia_addr(struct dhcp6_options *opts)
 {

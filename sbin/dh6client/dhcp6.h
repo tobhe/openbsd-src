@@ -79,6 +79,11 @@ struct dhcp6_opt_iaaddr {
 	uint32_t			iaaddr_vltime;
 };
 
+struct dhcp6_opt_statuscode {
+	uint16_t			 status_code;
+	char				*status_msg;
+};
+
 struct dhcp6_msg {
 	struct dhcp6_options		msg_options;
 	uint8_t				msg_transaction_id[3];
@@ -97,6 +102,7 @@ struct dhcp6_msg {
 #define DHCP6_OPTION_IANA		(3)
 #define DHCP6_OPTION_IAADDR		(5)
 #define DHCP6_OPTION_ELAPSED_TIME	(8)
+#define DHCP6_OPTION_STATUSCODE		(13)
 #define DHCP6_OPTION_RAPID_COMMIT	(14)
 #define DHCP6_OPTION_IAPD		(25)
 #define DHCP6_OPTION_IAPREFIX		(26)
@@ -108,12 +114,16 @@ struct dhcp6_options	*dhcp6_options_add_iana(struct dhcp6_options *, uint32_t,
 struct dhcp6_options	*dhcp6_options_add_iapd(struct dhcp6_options *, uint32_t,
 			    uint32_t, uint32_t);
 struct dhcp6_options	*dhcp6_options_add_ia_addr(struct dhcp6_options *);
+struct dhcp6_options	*dhcp6_options_add_ia_prefix(struct dhcp6_options *,
+			    uint8_t);
 struct dhcp6_option *	 dhcp6_options_get_option(struct dhcp6_options *opts,
 			    int);
 int			 dhcp6_options_iaaddress_verify(struct dhcp6_opt_iaaddr *,
 			    uint8_t *);
 int			 dhcp6_options_iaprefix_verify(struct dhcp6_opt_iaaddr *,
 			    uint8_t *);
+int			 dhcp6_options_statuscode_verify(struct dhcp6_opt_statuscode *,
+			    uint8_t *, size_t);
 ssize_t			 dhcp6_msg_serialize(struct dhcp6_msg *, uint8_t *,
 			    ssize_t);
 struct dhcp6_msg	*dhcp6_msg_init(uint8_t);

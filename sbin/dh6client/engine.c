@@ -156,7 +156,8 @@ engine(int debug, int verbose)
 	event_init();
 
 	/* Setup signal handler(s). */
-	signal_set(&ev_sigint, SIGINT, engine_sig_handler, NULL); signal_set(&ev_sigterm, SIGTERM, engine_sig_handler, NULL);
+	signal_set(&ev_sigint, SIGINT, engine_sig_handler, NULL);
+	signal_set(&ev_sigterm, SIGTERM, engine_sig_handler, NULL);
 	signal_add(&ev_sigint, NULL);
 	signal_add(&ev_sigterm, NULL);
 	signal(SIGPIPE, SIG_IGN);
@@ -500,8 +501,8 @@ iface_configure(struct dh6client_iface *iface, struct dhcp6_opt_iaaddr *iaaddr)
 		tv.tv_sec = next_timeout;
 		tv.tv_usec = arc4random_uniform(1000000);
 		evtimer_add(&iface->timer, &tv);
-		log_debug("%s: %d, scheduling new timeout in %llds.%06ld",
-		    __func__, iface->if_index, tv.tv_sec, tv.tv_usec);
+		log_debug("iface%d: %s: scheduling new timeout in %llds.%06ld",
+		    iface->if_index, __func__, tv.tv_sec, tv.tv_usec);
 	}
 
 	engine_imsg_compose_main(IMSG_CONFIGURE_ADDRESS, 0,
@@ -512,6 +513,7 @@ int
 dh6client_send_solicit(struct dh6client_iface *iface)
 {
 	struct dhcp6_msg	*msg;
+	struct dhcp6_options	*p;
 	struct imsg_dhcp6	 imsg;
 	uint16_t		 time;
 	struct timeval		 tv;
@@ -529,19 +531,21 @@ dh6client_send_solicit(struct dh6client_iface *iface)
 		return (-1);
 	time = (tv.tv_sec - iface->start_time.tv_sec) * 1000000L
 	    + tv.tv_usec - iface->start_time.tv_usec;
-	if (dhcp6_options_add_option(&msg->msg_options, DHCP6_OPTION_ELAPSED_TIME,
-	    &time, sizeof(time)) == -1)
+	if (dhcp6_options_add_option(&msg->msg_options,
+	    DHCP6_OPTION_ELAPSED_TIME, &time, sizeof(time)) == -1)
 		return (-1);
 
 	/* Request Address */
 	if (dhcp6_options_add_iana(&msg->msg_options, 0, 0, 0) == NULL)
 		return (-1);
 
-	// /* Request Prefix */
-	// if (dhcp6_options_add_iapd(&msg->msg_options, 1, 0, 0) == NULL) {
-	// 	log_warn("%s: failed to add IA_PD option", __func__);
-	// 	return (-1);
-	// }
+	/* Request Prefix */
+	if ((p = dhcp6_options_add_iapd(&msg->msg_options, 0, 0, 0)) == NULL) {
+		log_warn("%s: failed to add IA_PD option", __func__);
+		return (-1);
+	}
+	if (dhcp6_options_add_ia_prefix(p, 56) == NULL)
+		return (-1);
 
 	if (iface->options & DH6CLIENT_IFACE_OPTION_RAPID)
 		dhcp6_options_add_option(&msg->msg_options,
@@ -575,8 +579,9 @@ dh6client_parse(struct imsg_dhcp6 *dhcp6)
 {
 	struct dh6client_iface		*iface;
 	struct dhcp6_msg		*msg;
-	struct dhcp6_option		*opt;
+	struct dhcp6_option		*opt, *pd, *sc;
 	struct dhcp6_opt_iaaddr		 iaaddr;
+	struct dhcp6_opt_statuscode	 status;
 	char				 buffer[INET6_ADDRSTRLEN];
 	const char			*ptr;
 
@@ -604,16 +609,16 @@ dh6client_parse(struct imsg_dhcp6 *dhcp6)
 
 				if ((opt = dhcp6_options_get_option(&opt->option_options,
 				    DHCP6_OPTION_IAADDR)) == NULL) {
-					log_warn("%s: IA_NA without address.",
-					    __func__);
+					log_warn("iface%d: %s: IA_NA without address.",
+					    iface->if_index, __func__);
 					return (0);
 				}
 				if ((ptr = inet_ntop(AF_INET6, opt->option_data,
 				    buffer, sizeof(buffer))) == NULL)
 					return (-1);
 
-				log_info("%s: Obtained IA_NA IPv6 address: %s on iface %d",
-				    __func__, ptr, iface->if_index);
+				log_info("iface%d: %s: IA_NA: IPv6 address: %s",
+				    iface->if_index, __func__, ptr);
 
 				/* Configure Address  */
 				dhcp6_options_iaaddress_verify(&iaaddr, opt->option_data);
@@ -623,28 +628,33 @@ dh6client_parse(struct imsg_dhcp6 *dhcp6)
 			/* Configure IA_PD prefix */
 			if ((opt = dhcp6_options_get_option(&msg->msg_options,
 			    DHCP6_OPTION_IAPD)) != NULL) {
-				if ((opt = dhcp6_options_get_option(&opt->option_options,
-				    DHCP6_OPTION_IAPREFIX)) == NULL) {
-					log_warn("%s: IA_PD without prefix.",
-					    __func__);
-					return (0);
+				if ((pd = dhcp6_options_get_option(&opt->option_options,
+				    DHCP6_OPTION_IAPREFIX)) != NULL) {
+					if ((ptr = inet_ntop(AF_INET6, pd->option_data,
+					    buffer, sizeof(buffer))) == NULL)
+						return (-1);
+
+					log_info("iface%d: %s: IA_PD: IPv6 prefix",
+					    iface->if_index, __func__);
+
+					/* Configure Prefix  */
+					dhcp6_options_iaprefix_verify(&iaaddr,
+					    pd->option_data);
+					iface_configure(iface, &iaaddr);
 				}
-				if ((ptr = inet_ntop(AF_INET6, opt->option_data,
-				    buffer, sizeof(buffer))) == NULL)
-					return (-1);
-
-				log_info("%s: Obtained IA_PD IPv6 prefix on iface %d",
-				    __func__, iface->if_index);
-
-				/* Configure Prefix  */
-				dhcp6_options_iaprefix_verify(&iaaddr,
-				    opt->option_data);
-				iface_configure(iface, &iaaddr);
+				if ((sc = dhcp6_options_get_option(&opt->option_options,
+				    DHCP6_OPTION_STATUSCODE)) != NULL) {
+					dhcp6_options_statuscode_verify(&status,
+					    sc->option_data, sc->option_data_len);
+					log_info("iface%d: %s: IA_PD: [%u]: %s",
+					    iface->if_index, __func__,
+					    status.status_code, status.status_msg);
+				}
 			}
 		} else {
 			/* Four message handshake */
-			log_warn("%s: Four message handshake not supported.",
-			    __func__);
+			log_warn("iface%d: %s: Four message handshake not supported.",
+			    iface->if_index, __func__);
 		}
 		break;
 	default:
@@ -695,8 +705,9 @@ engine_get_duid(char *path, struct dhcp6_duid *id)
 			goto err;
 		}
 	}
-	print_debug("%s: DUID: ", __func__);
-	print_hex(id->duid_id, 0, id->duid_len);
+	log_debug("%s: DUID: ", __func__);
+	if(log_getverbose())
+		print_hex(id->duid_id, 0, id->duid_len);
 	ret = 0;
  err:
 	fclose(fp);
