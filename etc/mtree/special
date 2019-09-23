@@ -23,6 +23,7 @@ csh.logout	type=file mode=0644 uname=root gname=wheel optional
 daily		type=file mode=0644 uname=root gname=wheel
 daily.local	type=file mode=0644 uname=root gname=wheel optional
 dhcpd.conf	type=file mode=0644 uname=root gname=wheel optional
+duid		type=file mode=0600 uname=root gname=wheel optional
 dvmrpd.conf	type=file mode=0600 uname=root gname=wheel optional
 exports		type=file mode=0644 uname=root gname=wheel optional
 fbtab		type=file mode=0644 uname=root gname=wheel

@@ -71,6 +71,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <inttypes.h>
+#include <limits.h>
 
 #include "dh6client.h"
 #include "dhcp6.h"
@@ -665,45 +666,33 @@ dh6client_parse(struct imsg_dhcp6 *dhcp6)
 	return (0);
 }
 
-
 static int
 engine_get_duid(char *path, struct dhcp6_duid *id)
 {
 	FILE			*fp = NULL;
+	char			 tmp[3];
+	size_t			 i;
 	int			 ret = -1;
-	size_t			 r;
 
 	bzero(id, sizeof(*id));
+	bzero(tmp, sizeof(tmp));
 
 	if ((fp = fopen(path, "r")) == NULL) {
-		/* No previous DUID, generate new */
-		if (dhcp6_get_duid(NULL, DHCP6_DUID_TYPE_RAND, id) == -1)
-			goto err;
+		log_info("%s: error: can not read duid from %s", __func__,
+		    path);
+		return (-1);
+	}
 
-		if ((fp = fopen(path, "w+")) == NULL) {
-			log_debug("%s: Failed to open DUID for write.",
-			    __func__);
-			goto err;
-		}
-		if ((fwrite(&id->duid_len, sizeof(id->duid_len), 1, fp)) != 1) {
-			goto err;
-		}
-		if ((fwrite(id->duid_id, id->duid_len, 1, fp)) != 1) {
-			goto err;
-		}
-	} else {
-		if ((r = fread(&id->duid_len, sizeof(id->duid_len), 1, fp))
-		    != 1) {
-			log_debug("%s: error failed read len:", __func__);
-			goto err;
-		}
+	id->duid_len = 16;
+	id->duid_id = calloc(id->duid_len, sizeof(uint8_t));
 
-		id->duid_id = calloc(id->duid_len, sizeof(uint8_t));
-		if ((r = fread(id->duid_id, 1, id->duid_len, fp))
-		    != id->duid_len) {
-			log_debug("%s: error failed read:", __func__);
+	for (i = 0; i < id->duid_len; i++) {
+		if ((fread(tmp, sizeof(char), sizeof(tmp) - 1, fp))
+		    != sizeof(tmp) - 1) {
+			log_info("%s: error failed read:", __func__);
 			goto err;
 		}
+		id->duid_id[i] = strtol(tmp, NULL, 16);
 	}
 	log_debug("%s: DUID: ", __func__);
 	if(log_getverbose())

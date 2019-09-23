@@ -54,7 +54,6 @@ test_parser(void)
 	return 0;
 }
 
-
 void
 print_debug(const char *emsg, ...)
 {

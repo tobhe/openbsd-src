@@ -40,7 +40,7 @@
 #define	DH6CLIENT_SOCKET	"/dev/dh6client.sock"
 #define	DH6CLIENT_USER		"_dh6client"
 #define	DH6CLIENT_RTA_LABEL	"dh6client"
-#define DH6CLIENT_DUID_FILE	"/var/db/dh6client_duid"
+#define DH6CLIENT_DUID_FILE	"/etc/duid"
 
 #define	IMSG_DATA_SIZE(imsg)	((imsg).hdr.len - IMSG_HEADER_SIZE)
 

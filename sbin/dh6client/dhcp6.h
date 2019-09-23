@@ -130,7 +130,5 @@ struct dhcp6_msg	*dhcp6_msg_init(uint8_t);
 struct dhcp6_msg	*dhcp6_msg_parse(uint8_t*, size_t);
 void			 dhcp6_msg_print(struct dhcp6_msg *);
 void			 dhcp6_msg_free(struct dhcp6_msg *);
-int			 dhcp6_get_duid(struct ether_addr *, uint8_t,
-			    struct dhcp6_duid *);
 
 #endif /* DHCP6_H */
