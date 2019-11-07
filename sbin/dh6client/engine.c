@@ -19,6 +19,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
+
 /*
  * Copyright (C) 1995, 1996, 1997, and 1998 WIDE Project.
  * All rights reserved.
@@ -54,31 +55,39 @@
 #include <sys/syslog.h>
 #include <sys/uio.h>
 
-#include <arpa/inet.h>
 #include <net/if.h>
-#include <netinet/if_ether.h>
+#include <arpa/inet.h>
 #include <netinet/in.h>
+#include <netinet/if_ether.h>
 
 #include <errno.h>
 #include <event.h>
 #include <imsg.h>
+#include <limits.h>
 #include <pwd.h>
 #include <signal.h>
 #include <stddef.h>
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
-#include <inttypes.h>
-#include <limits.h>
 
-#include "dh6client.h"
+#include "log.h"
 #include "dhcp6.h"
+#include "dh6client.h"
+#include "engine.h"
 
 #define	MAX_DHCP6_SOLICITATION_DELAY_USEC	1000000
-#define	MAX_DHCP6_SOLICITATIONS			3
 #define	DHCP6_SOLICITATION_INTERVAL		4
+#define	MAX_DHCP6_SOLICITATIONS			3
+
+enum if_state {
+	IF_DOWN,
+	IF_DELAY,
+	IF_PROBE,
+	IF_IDLE,
+};
 
 const char* if_state_name[] = {
 	"IF_DOWN",
@@ -87,32 +96,80 @@ const char* if_state_name[] = {
 	"IF_IDLE",
 };
 
-__dead static void	 engine_shutdown(void);
-static void		 engine_sig_handler(int sig, short, void *);
-static int		 engine_imsg_compose_main(int, pid_t, void *, uint16_t);
-static void		 engine_dispatch_main(int, short, void *);
-static void		 engine_dispatch_frontend(int, short, void *);
-static int		 engine_get_duid(char *, struct dhcp6_duid *);
+struct dh6client_iface {
+	LIST_ENTRY(dh6client_iface)	 entries;
+	enum if_state			 state;
+	struct event			 timer;
+	struct timeval			 start_time;
+	int				 probes;
+	uint32_t			 if_index;
+	int				 running;
+	struct ether_addr		 hw_address;
+	struct sockaddr_in6		 ll_address;
+	int				 link_state;
+	uint32_t			 cur_mtu;
+	uint32_t			 options;
+};
 
+LIST_HEAD(, dh6client_iface) dh6client_interfaces;
+
+__dead void	 	 engine_shutdown(void);
+void			 engine_sig_handler(int sig, short, void *);
+void			 engine_dispatch_frontend(int, short, void *);
+void			 engine_dispatch_main(int, short, void *);
+struct dh6client_iface	*get_dh6client_iface_by_id(uint32_t);
+void			 remove_dh6client_iface(uint32_t);
+void			 start_probe(struct dh6client_iface *);
 void			 iface_timeout(int, short, void *);
-void			 iface_remove(uint32_t);
-void			 iface_configure(struct dh6client_iface *i,
+void			 iface_configure(struct dh6client_iface *,
 			    struct dhcp6_opt_iaaddr *);
-struct dh6client_iface	*iface_get_by_id(uint32_t);
-
-int			 dh6client_parse(struct imsg_dhcp6 *);
+int			 dh6client_parse(struct dh6client_iface *,
+			    struct imsg_dhcp6 *);
+int			 dh6client_send_solicit(struct dh6client_iface *);
+void			 print_debug(const char *, ...);
+void			 print_hex(uint8_t *,  off_t, size_t);
+int			 engine_imsg_compose_main(int, pid_t, void *, uint16_t);
 
 struct imsgev		*iev_frontend;
 struct imsgev		*iev_main;
 int64_t			 proposal_id;
 
-static void
+
+void
+print_debug(const char *emsg, ...)
+{
+	va_list	 ap;
+
+	va_start(ap, emsg);
+	vfprintf(stderr, emsg, ap);
+	va_end(ap);
+}
+
+void
+print_hex(uint8_t *buf,  off_t offset, size_t length)
+{
+	unsigned int	 i;
+
+	for (i = 0; i < length; i++) {
+		if (i && (i % 4) == 0) {
+			if ((i % 32) == 0)
+				print_debug("\n");
+			else
+				print_debug(" ");
+		}
+		print_debug("%02x", buf[offset + i]);
+	}
+	print_debug("\n");
+}
+
+void
 engine_sig_handler(int sig, short event, void *arg)
 {
 	/*
 	 * Normal signal handler rules don't apply because libevent
 	 * decouples for us.
 	 */
+
 	switch (sig) {
 	case SIGINT:
 	case SIGTERM:
@@ -130,9 +187,6 @@ engine(int debug, int verbose)
 
 	log_init(debug, LOG_DAEMON);
 	log_setverbose(verbose);
-
-	if (engine_get_duid(DH6CLIENT_DUID_FILE, &duid) == -1)
-		fatal("duid");
 
 	if ((pw = getpwnam(DH6CLIENT_USER)) == NULL)
 		fatal("getpwnam");
@@ -165,7 +219,7 @@ engine(int debug, int verbose)
 	signal(SIGHUP, SIG_IGN);
 
 	/* Setup pipe and event handler to the main process. */
-	if ((iev_main = calloc(1, sizeof(struct imsgev))) == NULL)
+	if ((iev_main = malloc(sizeof(struct imsgev))) == NULL)
 		fatal(NULL);
 
 	imsg_init(&iev_main->ibuf, 3);
@@ -184,7 +238,7 @@ engine(int debug, int verbose)
 	engine_shutdown();
 }
 
-__dead static void
+__dead void
 engine_shutdown(void)
 {
 	/* Close pipes. */
@@ -196,10 +250,19 @@ engine_shutdown(void)
 	free(iev_frontend);
 	free(iev_main);
 
+	log_info("engine exiting");
 	exit(0);
 }
 
-static int
+int
+engine_imsg_compose_frontend(int type, pid_t pid, void *data,
+    uint16_t datalen)
+{
+	return (imsg_compose_event(iev_frontend, type, 0, pid, -1,
+	    data, datalen));
+}
+
+int
 engine_imsg_compose_main(int type, pid_t pid, void *data,
     uint16_t datalen)
 {
@@ -207,7 +270,122 @@ engine_imsg_compose_main(int type, pid_t pid, void *data,
 	    data, datalen));
 }
 
-static void
+void
+engine_dispatch_frontend(int fd, short event, void *bula)
+{
+	struct imsg_ifinfo		 imsg_ifinfo;
+	struct imsg			 imsg;
+	struct imsg_dhcp6		 dhcp6;
+	struct imsgev			*iev = bula;
+	struct imsgbuf			*ibuf = &iev->ibuf;
+	struct dh6client_iface		*iface;
+	ssize_t				 n;
+	int				 shut = 0;
+	uint32_t			 if_index;
+
+	if (event & EV_READ) {
+		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
+			fatal("imsg_read error");
+		if (n == 0)	/* Connection closed. */
+			shut = 1;
+	}
+	if (event & EV_WRITE) {
+		if ((n = msgbuf_write(&ibuf->w)) == -1 && errno != EAGAIN)
+			fatal("msgbuf_write");
+		if (n == 0)	/* Connection closed. */
+			shut = 1;
+	}
+
+	for (;;) {
+		if ((n = imsg_get(ibuf, &imsg)) == -1)
+			fatal("%s: imsg_get error", __func__);
+		if (n == 0)	/* No more messages. */
+			break;
+
+		switch (imsg.hdr.type) {
+		case IMSG_REMOVE_IF:
+			if (IMSG_DATA_SIZE(imsg) != sizeof(if_index))
+				fatalx("%s: IMSG_REMOVE_IF wrong length: %lu",
+				    __func__, IMSG_DATA_SIZE(imsg));
+			memcpy(&if_index, imsg.data, sizeof(if_index));
+			remove_dh6client_iface(if_index);
+			break;
+		case IMSG_DHCP6:
+			if (IMSG_DATA_SIZE(imsg) != sizeof(dhcp6))
+				fatalx("%s: IMSG_DHCP6 wrong length: %lu",
+				    __func__, IMSG_DATA_SIZE(imsg));
+			memcpy(&dhcp6, imsg.data, sizeof(dhcp6));
+			iface = get_dh6client_iface_by_id(dhcp6.if_index);
+			if (iface != NULL)
+				dh6client_parse(iface, &dhcp6);
+			break;
+		case IMSG_UPDATE_IF:
+			if (IMSG_DATA_SIZE(imsg) != sizeof(imsg_ifinfo))
+				fatalx("%s: IMSG_UPDATE_IF wrong length: %lu",
+				    __func__, IMSG_DATA_SIZE(imsg));
+			memcpy(&imsg_ifinfo, imsg.data, sizeof(imsg_ifinfo));
+
+			iface = get_dh6client_iface_by_id(imsg_ifinfo.if_index);
+			if (iface == NULL) {
+				if ((iface = calloc(1, sizeof(*iface))) == NULL)
+					fatal("calloc");
+				evtimer_set(&iface->timer, iface_timeout,
+				    iface);
+				iface->if_index = imsg_ifinfo.if_index;
+				iface->running = imsg_ifinfo.running;
+				/* XXX: Always Rapid-Commit */
+				iface->options |= DH6CLIENT_IFACE_OPTION_RAPID;
+				memcpy(&iface->hw_address,
+				    &imsg_ifinfo.hw_address,
+				    sizeof(iface->hw_address));
+				LIST_INSERT_HEAD(&dh6client_interfaces,
+				    iface, entries);
+				if (iface->running)
+					start_probe(iface);
+				else
+					iface->state = IF_DOWN;
+			} else {
+				int need_refresh = 0;
+
+				if (memcmp(&iface->hw_address,
+				    &imsg_ifinfo.hw_address,
+				    sizeof(struct ether_addr)) != 0) {
+					memcpy(&iface->hw_address,
+					    &imsg_ifinfo.hw_address,
+					    sizeof(struct ether_addr));
+					need_refresh = 1;
+				}
+
+				if (iface->state != IF_DOWN &&
+				    imsg_ifinfo.running && need_refresh)
+					start_probe(iface);
+
+				iface->running = imsg_ifinfo.running;
+				if (!iface->running) {
+					iface->state = IF_DOWN;
+					if (evtimer_pending(&iface->timer,
+					    NULL))
+						evtimer_del(&iface->timer);
+				}
+			}
+			break;
+		default:
+			log_debug("%s: unexpected imsg %d", __func__,
+			    imsg.hdr.type);
+			break;
+		}
+		imsg_free(&imsg);
+	}
+	if (!shut)
+		imsg_event_add(iev);
+	else {
+		/* This pipe is dead. Remove its event handler. */
+		event_del(&iev->ev);
+		event_loopexit(NULL);
+	}
+}
+
+void
 engine_dispatch_main(int fd, short event, void *bula)
 {
 	struct imsg		 imsg;
@@ -265,6 +443,13 @@ engine_dispatch_main(int fd, short event, void *bula)
 			if (pledge("stdio", NULL) == -1)
 				fatal("pledge");
 			break;
+		case IMSG_DUID:
+			duid.duid_id = calloc(IMSG_DATA_SIZE(imsg),
+			   sizeof(uint8_t));
+			memcpy(duid.duid_id, imsg.data, IMSG_DATA_SIZE(imsg));
+			duid.duid_len = IMSG_DATA_SIZE(imsg);
+			duid.duid_type = DHCP6_DUID_TYPE_LLPT;
+			break;
 		default:
 			log_debug("%s: unexpected imsg %d", __func__,
 			    imsg.hdr.type);
@@ -281,142 +466,13 @@ engine_dispatch_main(int fd, short event, void *bula)
 	}
 }
 
-static int
-engine_imsg_compose_frontend(int type, pid_t pid, void *data,
-    uint16_t datalen)
-{
-	return (imsg_compose_event(iev_frontend, type, 0, pid, -1,
-	    data, datalen));
-}
-
-static void
-engine_dispatch_frontend(int fd, short event, void *bula)
-{
-	struct dh6client_iface	*iface;
-	struct imsg		 imsg;
-	struct imsgev		*iev = bula;
-	struct imsgbuf		*ibuf = &iev->ibuf;
-	struct imsg_dhcp6	 dhcp6;
-	struct imsg_ifinfo	 imsg_ifinfo;
-	ssize_t			 n;
-	int			 shut = 0;
-	struct timeval		 tv;
-	uint32_t		 if_index;
-
-	if (event & EV_READ) {
-		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
-			fatal("imsg_read error");
-		if (n == 0)	/* Connection closed. */
-			shut = 1;
-	}
-	if (event & EV_WRITE) {
-		if ((n = msgbuf_write(&ibuf->w)) == -1 && errno != EAGAIN)
-			fatal("msgbuf_write");
-		if (n == 0)	/* Connection closed. */
-			shut = 1;
-	}
-
-	for (;;) {
-		if ((n = imsg_get(ibuf, &imsg)) == -1)
-			fatal("%s: imsg_get error", __func__);
-		if (n == 0)	/* No more messages. */
-			break;
-
-		switch (imsg.hdr.type) {
-		case IMSG_DHCP6:
-			if (IMSG_DATA_SIZE(imsg) != sizeof(dhcp6))
-				fatalx("%s: IMSG_DHCP6 wrong length: %lu",
-				    __func__, IMSG_DATA_SIZE(imsg));
-			memcpy(&dhcp6, imsg.data, sizeof(dhcp6));
-			dh6client_parse(&dhcp6);
-			break;
-		case IMSG_UPDATE_IF:
-			if (IMSG_DATA_SIZE(imsg) != sizeof(imsg_ifinfo))
-				fatalx("%s: IMSG_UPDATE_IF wrong length: %lu",
-				    __func__, IMSG_DATA_SIZE(imsg));
-			memcpy(&imsg_ifinfo, imsg.data, sizeof(imsg_ifinfo));
-
-			iface = iface_get_by_id(imsg_ifinfo.if_index);
-			if (iface == NULL) {
-				if ((iface = calloc(1, sizeof(*iface))) == NULL)
-					fatal("calloc");
-				memcpy(&iface->hw_address, &imsg_ifinfo.hw_address,
-				    sizeof(imsg_ifinfo.hw_address));
-				iface->if_index = imsg_ifinfo.if_index;
-				iface->running = imsg_ifinfo.running;
-
-				evtimer_set(&iface->timer, iface_timeout, iface);
-
-				/* XXX: Always Rapid-Commit */
-				iface->options |= DH6CLIENT_IFACE_OPTION_RAPID;
-				iface->state = IF_DELAY;
-				iface->probes = 0;
-
-				LIST_INSERT_HEAD(&dh6client_interfaces,
-				    iface, entries);
-
-				tv.tv_sec = 0;
-				tv.tv_usec = arc4random_uniform(MAX_DHCP6_SOLICITATION_DELAY_USEC);
-				if (iface->running)
-					evtimer_add(&iface->timer, &tv);
-				else
-					iface->state = IF_DOWN;
-			} else {
-				int need_refresh = 0;
-
-				if (memcmp(&iface->hw_address,
-				     &imsg_ifinfo.hw_address,
-				     sizeof(struct ether_addr)) != 0) {
-					memcpy(&iface->hw_address,
-					    &imsg_ifinfo.hw_address,
-					    sizeof(struct ether_addr));
-					need_refresh = 1;
-				}
-
-				bzero(&tv, sizeof(tv));
-				if (iface->state != IF_DOWN &&
-				    imsg_ifinfo.running && need_refresh)
-					evtimer_add(&iface->timer, &tv);
-
-				iface->running = imsg_ifinfo.running;
-				if (!iface->running) {
-					iface->state = IF_DOWN;
-					if (evtimer_pending(&iface->timer,
-					    NULL))
-						evtimer_del(&iface->timer);
-				}
-			}
-			break;
-		case IMSG_REMOVE_IF:
-			if (IMSG_DATA_SIZE(imsg) != sizeof(if_index))
-				fatalx("%s: IMSG_REMOVE_IF wrong length: %lu",
-				    __func__, IMSG_DATA_SIZE(imsg));
-			memcpy(&if_index, imsg.data, sizeof(if_index));
-			iface_remove(if_index);
-			break;
-		default:
-			if (IMSG_DATA_SIZE(imsg) != sizeof(dhcp6))
-			log_debug("%s: unexpected imsg %d", __func__,
-			    imsg.hdr.type);
-			break;
-		}
-		imsg_free(&imsg);
-	}
-	if (!shut)
-		imsg_event_add(iev);
-	else {
-		/* This pipe is dead. Remove its event handler. */
-		event_del(&iev->ev);
-		event_loopexit(NULL);
-	}
-}
 
 void
-iface_remove(uint32_t if_index)
+remove_dh6client_iface(uint32_t if_index)
 {
 	struct dh6client_iface	*iface;
 
-	iface = iface_get_by_id(if_index);
+	iface = get_dh6client_iface_by_id(if_index);
 
 	if (iface == NULL)
 		return;
@@ -439,7 +495,8 @@ iface_timeout(int fd, short events, void *arg)
 		case IF_DELAY:
 		case IF_PROBE:
 			if (iface->probes == 0) {
-				if (gettimeofday(&iface->start_time, NULL) == -1)
+				if (gettimeofday(&iface->start_time,
+				    NULL) == -1)
 					fatal("gettimeofday");
 			}
 			if (dh6client_send_solicit(iface) == -1) {
@@ -464,13 +521,14 @@ iface_timeout(int fd, short events, void *arg)
 }
 
 struct dh6client_iface*
-iface_get_by_id(uint32_t if_index)
+get_dh6client_iface_by_id(uint32_t if_index)
 {
 	struct dh6client_iface	*iface;
 	LIST_FOREACH (iface, &dh6client_interfaces, entries) {
 		if (iface->if_index == if_index)
 			return (iface);
 	}
+
 	return (NULL);
 }
 
@@ -502,7 +560,7 @@ iface_configure(struct dh6client_iface *iface, struct dhcp6_opt_iaaddr *iaaddr)
 		tv.tv_sec = next_timeout;
 		tv.tv_usec = arc4random_uniform(1000000);
 		evtimer_add(&iface->timer, &tv);
-		log_debug("iface%d: %s: scheduling new timeout in %llds.%06ld",
+		log_info("iface%d: %s: scheduling new timeout in %llds.%06ld",
 		    iface->if_index, __func__, tv.tv_sec, tv.tv_usec);
 	}
 
@@ -530,6 +588,7 @@ dh6client_send_solicit(struct dh6client_iface *iface)
 	/* Mandatory elapsed time option */
 	if (gettimeofday(&tv, NULL) == -1)
 		return (-1);
+
 	time = (tv.tv_sec - iface->start_time.tv_sec) * 1000000L
 	    + tv.tv_usec - iface->start_time.tv_usec;
 	if (dhcp6_options_add_option(&msg->msg_options,
@@ -553,13 +612,9 @@ dh6client_send_solicit(struct dh6client_iface *iface)
 		    DHCP6_OPTION_RAPID_COMMIT, NULL, 0);
 
 	if ((imsg.len = dhcp6_msg_serialize(msg, imsg.packet, 1500)) == -1) {
-		log_warn("%s: failed to convert msg to binary.", __func__);
+		log_info("%s: failed to serialize msg.", __func__);
 		return (-1);
 	}
-
-	/* Check correctness by parsing */
-	if (dhcp6_msg_parse(imsg.packet, imsg.len) == NULL)
-		return (-1);
 
 	if (log_getverbose()) {
 		log_debug("%s: Sending solicit message:", __func__);
@@ -576,9 +631,8 @@ dh6client_send_solicit(struct dh6client_iface *iface)
 }
 
 int
-dh6client_parse(struct imsg_dhcp6 *dhcp6)
+dh6client_parse(struct dh6client_iface *iface, struct imsg_dhcp6 *dhcp6)
 {
-	struct dh6client_iface		*iface;
 	struct dhcp6_msg		*msg;
 	struct dhcp6_option		*opt, *pd, *sc;
 	struct dhcp6_opt_iaaddr		 iaaddr;
@@ -586,11 +640,8 @@ dh6client_parse(struct imsg_dhcp6 *dhcp6)
 	char				 buffer[INET6_ADDRSTRLEN];
 	const char			*ptr;
 
-	iface = iface_get_by_id(dhcp6->if_index);
-	if (iface == NULL) {
-		log_warn("%s: interface unknown.", __func__);
-		return (-1);
-	}
+	log_info("RECV:");
+	print_hex(dhcp6->packet, 0, dhcp6->len);
 
 	if ((msg = dhcp6_msg_parse(dhcp6->packet, dhcp6->len)) == NULL)
 		return (-1);
@@ -608,10 +659,12 @@ dh6client_parse(struct imsg_dhcp6 *dhcp6)
 			if ((opt = dhcp6_options_get_option(&msg->msg_options,
 			    DHCP6_OPTION_IANA)) != NULL) {
 
-				if ((opt = dhcp6_options_get_option(&opt->option_options,
+				if ((opt = dhcp6_options_get_option(
+				    &opt->option_options,
 				    DHCP6_OPTION_IAADDR)) == NULL) {
-					log_warn("iface%d: %s: IA_NA without address.",
-					    iface->if_index, __func__);
+					log_warn("iface%d: %s: IA_NA without "
+					    "address.", iface->if_index,
+					    __func__);
 					return (0);
 				}
 				if ((ptr = inet_ntop(AF_INET6, opt->option_data,
@@ -622,83 +675,70 @@ dh6client_parse(struct imsg_dhcp6 *dhcp6)
 				    iface->if_index, __func__, ptr);
 
 				/* Configure Address  */
-				dhcp6_options_iaaddress_verify(&iaaddr, opt->option_data);
+				dhcp6_options_iaaddress_verify(&iaaddr,
+				    opt->option_data, 0);
 				iface_configure(iface, &iaaddr);
 			}
 
 			/* Configure IA_PD prefix */
 			if ((opt = dhcp6_options_get_option(&msg->msg_options,
 			    DHCP6_OPTION_IAPD)) != NULL) {
-				if ((pd = dhcp6_options_get_option(&opt->option_options,
+				if ((pd = dhcp6_options_get_option(
+				    &opt->option_options,
 				    DHCP6_OPTION_IAPREFIX)) != NULL) {
-					if ((ptr = inet_ntop(AF_INET6, pd->option_data,
+					if ((ptr = inet_ntop(AF_INET6,
+					    pd->option_data,
 					    buffer, sizeof(buffer))) == NULL)
 						return (-1);
 
-					log_info("iface%d: %s: IA_PD: IPv6 prefix",
-					    iface->if_index, __func__);
+					log_info("iface%d: %s: IA_PD: IPv6 "
+					    "prefix", iface->if_index,
+					    __func__);
 
 					/* Configure Prefix  */
-					dhcp6_options_iaprefix_verify(&iaaddr,
-					    pd->option_data);
+					dhcp6_options_iaaddress_verify(&iaaddr,
+					    pd->option_data, 1);
 					iface_configure(iface, &iaaddr);
 				}
-				if ((sc = dhcp6_options_get_option(&opt->option_options,
+				if ((sc = dhcp6_options_get_option(
+				    &opt->option_options,
 				    DHCP6_OPTION_STATUSCODE)) != NULL) {
 					dhcp6_options_statuscode_verify(&status,
-					    sc->option_data, sc->option_data_len);
+					    sc->option_data,
+					    sc->option_data_len);
 					log_info("iface%d: %s: IA_PD: [%u]: %s",
 					    iface->if_index, __func__,
-					    status.status_code, status.status_msg);
+					    status.status_code,
+					    status.status_msg);
 				}
 			}
 		} else {
 			/* Four message handshake */
-			log_warn("iface%d: %s: Four message handshake not supported.",
-			    iface->if_index, __func__);
+			log_info("iface%d: %s: Four message handshake not "
+			    "supported.", iface->if_index, __func__);
 		}
 		break;
 	default:
-		log_warn("%s: unknown message type (%d).", __func__,
+		log_info("%s: unknown message type (%d).", __func__,
 		    msg->msg_type);
 		break;
 	}
 	return (0);
 }
 
-static int
-engine_get_duid(char *path, struct dhcp6_duid *id)
+void
+start_probe(struct dh6client_iface *iface)
 {
-	FILE			*fp = NULL;
-	char			 tmp[3];
-	size_t			 i;
-	int			 ret = -1;
+	struct timeval	tv;
 
-	bzero(id, sizeof(*id));
-	bzero(tmp, sizeof(tmp));
+	iface->state = IF_DELAY;
+	iface->probes = 0;
 
-	if ((fp = fopen(path, "r")) == NULL) {
-		log_info("%s: error: can not read duid from %s", __func__,
-		    path);
-		return (-1);
-	}
+	tv.tv_sec = 0;
+	tv.tv_usec = arc4random_uniform(MAX_DHCP6_SOLICITATION_DELAY_USEC);
 
-	id->duid_len = 16;
-	id->duid_id = calloc(id->duid_len, sizeof(uint8_t));
+	log_debug("%s: iface %d: sleeping for %ld usec", __func__,
+	    iface->if_index, tv.tv_usec);
 
-	for (i = 0; i < id->duid_len; i++) {
-		if ((fread(tmp, sizeof(char), sizeof(tmp) - 1, fp))
-		    != sizeof(tmp) - 1) {
-			log_info("%s: error failed read:", __func__);
-			goto err;
-		}
-		id->duid_id[i] = strtol(tmp, NULL, 16);
-	}
-	log_debug("%s: DUID: ", __func__);
-	if(log_getverbose())
-		print_hex(id->duid_id, 0, id->duid_len);
-	ret = 0;
- err:
-	fclose(fp);
-	return (ret);
+	evtimer_add(&iface->timer, &tv);
 }

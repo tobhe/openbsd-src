@@ -19,15 +19,7 @@
 #ifndef DHCP6_H
 #define DHCP6_H
 
-#include <sys/queue.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <net/if.h>
-#include <netinet/if_ether.h>
-#include <netinet/in.h>
-
 #define DHCP6_EXCHANGE_SOLICIT	(1)
-#define DHCP6_OPTION_HDR_SIZE	(4u)
 
 struct dhcp6_iana {
 	uint32_t	 iana_iaid;
@@ -36,14 +28,13 @@ struct dhcp6_iana {
 };
 
 struct dhcp6_duid {
-	uint8_t		 duid_type;
 	uint8_t		*duid_id;
 	uint16_t	 duid_len;
+	uint8_t		 duid_type;
 };
 
 #define DHCP6_DUID_TYPE_NONE	(0)
 #define DHCP6_DUID_TYPE_LLPT	(1)
-#define DHCP6_DUID_TYPE_VID	(1)
 #define DHCP6_DUID_TYPE_LL	(2)
 #define DHCP6_DUID_TYPE_UUID	(3)
 #define DHCP6_DUID_TYPE_RAND	(4)
@@ -52,7 +43,7 @@ struct dhcp6_duid_llpt {
 	uint16_t	 llpt_type;
 	uint16_t	 llpt_hwtype;
 	uint32_t	 llpt_time;
-	/* followd by MAC addr */
+	/* followed by MAC addr */
 } __packed;
 
 
@@ -95,6 +86,11 @@ struct dhcp6_msg {
 #define DHCP6_MSG_TYPE_ADVERTISE	(2)
 #define DHCP6_MSG_TYPE_REQUEST		(3)
 #define DHCP6_MSG_TYPE_CONFIRM		(4)
+#define DHCP6_MSG_TYPE_RENEW		(5)
+#define DHCP6_MSG_TYPE_REBIND		(6)
+#define DHCP6_MSG_TYPE_REPLY		(7)
+#define DHCP6_MSG_TYPE_RELEASE		(8)
+#define DHCP6_MSG_TYPE_DECLINE		(9)
 
 #define DHCP6_OPTION_NONE		(0)
 #define DHCP6_OPTION_CLIENTID		(1)
@@ -107,24 +103,27 @@ struct dhcp6_msg {
 #define DHCP6_OPTION_IAPD		(25)
 #define DHCP6_OPTION_IAPREFIX		(26)
 
+#define DHCP6_OPTION_IANA_LEN		(12)
+#define DHCP6_OPTION_IAPD_LEN		(12)
+#define DHCP6_OPTION_IAADDR_LEN		(24)
+#define DHCP6_OPTION_IAPREFIX_LEN	(25)
+
 int			 dhcp6_options_add_option(struct dhcp6_options *, int,
 			    void *, size_t);
-struct dhcp6_options	*dhcp6_options_add_iana(struct dhcp6_options *, uint32_t,
-			    uint32_t, uint32_t);
-struct dhcp6_options	*dhcp6_options_add_iapd(struct dhcp6_options *, uint32_t,
-			    uint32_t, uint32_t);
+struct dhcp6_options	*dhcp6_options_add_iana(struct dhcp6_options *,
+			    uint32_t, uint32_t, uint32_t);
+struct dhcp6_options	*dhcp6_options_add_iapd(struct dhcp6_options *,
+			    uint32_t, uint32_t, uint32_t);
 struct dhcp6_options	*dhcp6_options_add_ia_addr(struct dhcp6_options *);
 struct dhcp6_options	*dhcp6_options_add_ia_prefix(struct dhcp6_options *,
 			    uint8_t);
 struct dhcp6_option *	 dhcp6_options_get_option(struct dhcp6_options *opts,
 			    int);
-int			 dhcp6_options_iaaddress_verify(struct dhcp6_opt_iaaddr *,
-			    uint8_t *);
-int			 dhcp6_options_iaprefix_verify(struct dhcp6_opt_iaaddr *,
-			    uint8_t *);
-int			 dhcp6_options_statuscode_verify(struct dhcp6_opt_statuscode *,
+int	 dhcp6_options_iaaddress_verify(struct dhcp6_opt_iaaddr *,
+	    uint8_t *, int);
+int	 dhcp6_options_statuscode_verify(struct dhcp6_opt_statuscode *,
 			    uint8_t *, size_t);
-ssize_t			 dhcp6_msg_serialize(struct dhcp6_msg *, uint8_t *,
+ssize_t	 dhcp6_msg_serialize(struct dhcp6_msg *, uint8_t *,
 			    ssize_t);
 struct dhcp6_msg	*dhcp6_msg_init(uint8_t);
 struct dhcp6_msg	*dhcp6_msg_parse(uint8_t*, size_t);

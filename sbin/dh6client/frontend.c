@@ -25,59 +25,56 @@
 #include <sys/syslog.h>
 #include <sys/uio.h>
 
-#include <arpa/inet.h>
 #include <net/if.h>
-#include <net/if_types.h>
 #include <net/if_dl.h>
+#include <net/if_types.h>
 #include <net/route.h>
+
+#include <arpa/inet.h>
+
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
 #include <netinet/ip6.h>
 
 #include <errno.h>
 #include <event.h>
+#include <ifaddrs.h>
 #include <imsg.h>
+#include <netdb.h>
 #include <pwd.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <ifaddrs.h>
-#include <netdb.h>
 
-#include "dh6client.h"
+#include "log.h"
 #include "dhcp6.h"
+#include "dh6client.h"
+#include "frontend.h"
 
 #define	ROUTE_SOCKET_BUF_SIZE	16384
 #define	ALLDHCP6		"ff02::1:2"
 
-__dead static void	 frontend_shutdown(void);
-static void		 frontend_sig_handler(int, short, void *);
-static void		 frontend_startup(void);
-static void		 frontend_send_dhcp6(struct imsg_dhcp6 *);
-static void		 frontend_dispatch_main(int, short, void *);
-static void		 frontend_dispatch_engine(int, short, void *);
-static int		 frontend_imsg_compose_main(int, pid_t, void *,
-			    uint16_t);
-static int		 frontend_imsg_compose_engine(int, uint32_t, pid_t,
-			    void *, uint16_t);
-
-int		 if_get_flags(char *);
-int		 if_get_xflags(char *);
-int		 if_get_hwaddr(char *, struct ether_addr *);
-void		 if_update(uint32_t, char*);
+__dead void	 frontend_shutdown(void);
+void		 frontend_sig_handler(int, short, void *);
+void		 update_iface(uint32_t, char*);
+void		 frontend_startup(void);
+void		 send_dhcp6(struct imsg_dhcp6 *);
 void		 route_receive(int, short, void *);
-void		 dh6client_recv(int, short, void *);
 void		 handle_route_message(struct rt_msghdr *);
+void		 dhcpv6_receive(int, short, void *);
+int		 get_flags(char *);
+int		 get_xflags(char *);
+int		 get_hwaddr(char *, struct ether_addr *);
 
 struct sockaddr_in6		*alldhcp6;
 struct imsgev			*iev_main;
 struct imsgev			*iev_engine;
 struct event			 ev_route;
-int				 dhcp6sock = -1, ioctlsock;
 struct msghdr			 sndmhdr;
 struct iovec			 sndiov[2];
+int				 dhcp6sock = -1, ioctlsock;
 
 struct dhcp6_ev {
 	struct event		 ev;
@@ -87,7 +84,7 @@ struct dhcp6_ev {
 	struct sockaddr_in6	 from;
 } dhcp6ev;
 
-static void
+void
 frontend_sig_handler(int sig, short event, void *bula)
 {
 	/*
@@ -111,15 +108,26 @@ frontend(int debug, int verbose)
 	struct passwd		*pw;
 	struct addrinfo		 hints, *res;
 	struct sockaddr_in6	 alldhcp6_storage;
-	size_t			 rcvcmsglen, sndcmsgbuflen;
-	uint8_t			*rcvcmsgbuf, *sndcmsgbuf = NULL;
+	struct in6_pktinfo	*pi;
+	struct cmsghdr		*cm;
+	size_t			 rcvcmsglen, sndcmsglen;
 	int			 error;
+	int			 hoplimit = 255;
+	uint8_t			*rcvcmsgbuf, *sndcmsgbuf;
 
 	log_init(debug, LOG_DAEMON);
 	log_setverbose(verbose);
 
 	if ((pw = getpwnam(DH6CLIENT_USER)) == NULL)
 		fatal("getpwnam");
+
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = PF_INET6;
+	hints.ai_socktype = SOCK_DGRAM;
+	hints.ai_protocol = IPPROTO_UDP;
+	if ((error = getaddrinfo(ALLDHCP6, "dhcpv6-server", &hints,
+	    &res)) != 0)
+		fatalx("%s: getaddrinfo: %s ", __func__, gai_strerror(error));
 
 	if (chroot(pw->pw_dir) == -1)
 		fatal("chroot");
@@ -130,7 +138,7 @@ frontend(int debug, int verbose)
 	setproctitle("%s", log_procnames[dh6client_process]);
 	log_procinit(log_procnames[dh6client_process]);
 
-	if ((ioctlsock = socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, 0)) < 0)
+	if ((ioctlsock = socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, 0)) == -1)
 		fatal("socket");
 
 	if (setgroups(1, &pw->pw_gid) ||
@@ -138,7 +146,7 @@ frontend(int debug, int verbose)
 	    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
 		fatal("can't drop privileges");
 
-	if (pledge("stdio unix inet dns recvfd route", NULL) == -1)
+	if (pledge("stdio unix recvfd route", NULL) == -1)
 		fatal("pledge");
 
 	event_init();
@@ -152,7 +160,7 @@ frontend(int debug, int verbose)
 	signal(SIGHUP, SIG_IGN);
 
 	/* Setup pipe and event handler to the parent process. */
-	if ((iev_main = calloc(1, sizeof(struct imsgev))) == NULL)
+	if ((iev_main = malloc(sizeof(struct imsgev))) == NULL)
 		fatal(NULL);
 	imsg_init(&iev_main->ibuf, 3);
 	iev_main->handler = frontend_dispatch_main;
@@ -176,35 +184,45 @@ frontend(int debug, int verbose)
 	dhcp6ev.rcvmhdr.msg_controllen = rcvcmsglen;
 
 	/* Initialize outgoing message */
-	bzero(&hints, sizeof(hints));
-	bzero(&alldhcp6_storage, sizeof(alldhcp6_storage));
-
-	hints.ai_family = AF_INET6;
-	hints.ai_socktype = SOCK_DGRAM;
-	hints.ai_protocol = IPPROTO_UDP;
-	if ((error = getaddrinfo(ALLDHCP6, "547", &hints, &res)) != 0) {
-		fatalx("%s: getaddrinfo: %s", __func__, gai_strerror(error));
-	}
+	memset(&alldhcp6_storage, 0, sizeof(alldhcp6_storage));
 	memcpy(&alldhcp6_storage, res->ai_addr, res->ai_addrlen);
 	alldhcp6 = (struct sockaddr_in6 *)&alldhcp6_storage;
 
-	sndcmsgbuflen = CMSG_SPACE(sizeof(struct in6_pktinfo)) +
+	sndcmsglen = CMSG_SPACE(sizeof(struct in6_pktinfo)) +
 	    CMSG_SPACE(sizeof(int));
-	if ((sndcmsgbuf = malloc(sndcmsgbuflen)) == NULL)
-		fatal("%s", __func__);
+
+	if ((sndcmsgbuf = malloc(sndcmsglen)) == NULL)
+		fatal("malloc");
 
 	sndmhdr.msg_namelen = sizeof(struct sockaddr_in6);
 	sndmhdr.msg_iov = sndiov;
 	sndmhdr.msg_iovlen = 1;
 	sndmhdr.msg_control = sndcmsgbuf;
-	sndmhdr.msg_controllen = sndcmsgbuflen;
+	sndmhdr.msg_controllen = sndcmsglen;
+
+	sndmhdr.msg_name = alldhcp6;
+
+	cm = CMSG_FIRSTHDR(&sndmhdr);
+
+	cm->cmsg_level = IPPROTO_IPV6;
+	cm->cmsg_type = IPV6_PKTINFO;
+	cm->cmsg_len = CMSG_LEN(sizeof(struct in6_pktinfo));
+	pi = (struct in6_pktinfo *)CMSG_DATA(cm);
+	memset(&pi->ipi6_addr, 0, sizeof(pi->ipi6_addr));
+	pi->ipi6_ifindex = 0;
+
+	cm = CMSG_NXTHDR(&sndmhdr, cm);
+	cm->cmsg_level = IPPROTO_IPV6;
+	cm->cmsg_type = IPV6_HOPLIMIT;
+	cm->cmsg_len = CMSG_LEN(sizeof(int));
+	memcpy(CMSG_DATA(cm), &hoplimit, sizeof(int));
 
 	event_dispatch();
 
 	frontend_shutdown();
 }
 
-__dead static void
+__dead void
 frontend_shutdown(void)
 {
 	/* Close pipes. */
@@ -222,7 +240,7 @@ frontend_shutdown(void)
 	exit(0);
 }
 
-static int
+int
 frontend_imsg_compose_main(int type, pid_t pid, void *data,
     uint16_t datalen)
 {
@@ -230,7 +248,15 @@ frontend_imsg_compose_main(int type, pid_t pid, void *data,
 	    datalen));
 }
 
-static void
+int
+frontend_imsg_compose_engine(int type, uint32_t peerid, pid_t pid,
+    void *data, uint16_t datalen)
+{
+	return (imsg_compose_event(iev_engine, type, peerid, pid, -1,
+	    data, datalen));
+}
+
+void
 frontend_dispatch_main(int fd, short event, void *bula)
 {
 	struct imsg		 imsg;
@@ -273,7 +299,7 @@ frontend_dispatch_main(int fd, short event, void *bula)
 				   "frontend but didn't receive any",
 				   __func__);
 
-			iev_engine = calloc(1, sizeof(struct imsgev));
+			iev_engine = malloc(sizeof(struct imsgev));
 			if (iev_engine == NULL)
 				fatal(NULL);
 
@@ -291,7 +317,7 @@ frontend_dispatch_main(int fd, short event, void *bula)
 				    "ICMPv6 fd but didn't receive any",
 				    __func__);
 			event_set(&dhcp6ev.ev, dhcp6sock, EV_READ | EV_PERSIST,
-			    dh6client_recv, NULL);
+			    dhcpv6_receive, NULL);
 			break;
 		case IMSG_ROUTESOCK:
 			if ((fd = imsg.fd) == -1)
@@ -320,6 +346,180 @@ frontend_dispatch_main(int fd, short event, void *bula)
 		event_del(&iev->ev);
 		event_loopexit(NULL);
 	}
+}
+
+void
+frontend_dispatch_engine(int fd, short event, void *bula)
+{
+	struct imsgev		*iev = bula;
+	struct imsgbuf		*ibuf = &iev->ibuf;
+	struct imsg		 imsg;
+	struct imsg_dhcp6	 dhcp6;
+	ssize_t			 n;
+	int			 shut = 0;
+
+	if (event & EV_READ) {
+		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
+			fatal("imsg_read error");
+		if (n == 0)	/* Connection closed. */
+			shut = 1;
+	}
+	if (event & EV_WRITE) {
+		if ((n = msgbuf_write(&ibuf->w)) == -1 && errno != EAGAIN)
+			fatal("msgbuf_write");
+		if (n == 0)	/* Connection closed. */
+			shut = 1;
+	}
+
+	for (;;) {
+		if ((n = imsg_get(ibuf, &imsg)) == -1)
+			fatal("%s: imsg_get error", __func__);
+		if (n == 0)	/* No more messages. */
+			break;
+
+		switch (imsg.hdr.type) {
+		case IMSG_DHCP6:
+			if (IMSG_DATA_SIZE(imsg) != sizeof(dhcp6))
+				fatalx("%s: IMSG_DHCP6 wrong length: %lu",
+				    __func__, IMSG_DATA_SIZE(imsg));
+			memcpy(&dhcp6, imsg.data, sizeof(dhcp6));
+			send_dhcp6(&dhcp6);
+			break;
+		default:
+			log_debug("%s: error handling imsg %d", __func__,
+			    imsg.hdr.type);
+			break;
+		}
+		imsg_free(&imsg);
+	}
+	if (!shut)
+		imsg_event_add(iev);
+	else {
+		/* This pipe is dead. Remove its event handler. */
+		event_del(&iev->ev);
+		event_loopexit(NULL);
+	}
+}
+
+int
+get_flags(char *if_name)
+{
+	struct ifreq		 ifr;
+
+	(void) strlcpy(ifr.ifr_name, if_name, sizeof(ifr.ifr_name));
+	if (ioctl(ioctlsock, SIOCGIFFLAGS, (caddr_t)&ifr) == -1) {
+		log_warn("SIOCGIFFLAGS");
+		return -1;
+	}
+	return ifr.ifr_flags;
+}
+
+int
+get_xflags(char *if_name)
+{
+	struct ifreq		 ifr;
+
+	(void) strlcpy(ifr.ifr_name, if_name, sizeof(ifr.ifr_name));
+	if (ioctl(ioctlsock, SIOCGIFXFLAGS, (caddr_t)&ifr) == -1) {
+		log_warn("SIOCGIFXFLAGS");
+		return -1;
+	}
+	return ifr.ifr_flags;
+}
+
+void
+update_iface(uint32_t if_index, char* if_name)
+{
+	struct imsg_ifinfo	 imsg_ifinfo;
+	int			 flags, xflags;
+
+	if ((flags = get_flags(if_name)) == -1 || (xflags =
+	    get_xflags(if_name)) == -1)
+		return;
+
+	if (!(xflags & IFXF_AUTOCONF6))
+		return;
+
+	memset(&imsg_ifinfo, 0, sizeof(imsg_ifinfo));
+
+	imsg_ifinfo.if_index = if_index;
+	imsg_ifinfo.running = (flags & (IFF_UP | IFF_RUNNING)) == (IFF_UP |
+	    IFF_RUNNING);
+
+	if (get_hwaddr(if_name, &imsg_ifinfo.hw_address) != 0) {
+		log_debug("%s: failed to get HW address for iface %s.",
+		    __func__, if_name);
+		return;
+	}
+
+	frontend_imsg_compose_engine(IMSG_UPDATE_IF, 0, 0, &imsg_ifinfo,
+	    sizeof(imsg_ifinfo));
+}
+int
+get_hwaddr(char *if_name, struct ether_addr *mac)
+{
+	struct ifaddrs		*ifap, *ifa;
+	struct sockaddr_dl	*sdl;
+	int			 ret = -1;
+
+	if (mac == NULL)
+		fatal("mac can not be NULL");
+
+	if (getifaddrs(&ifap) != 0)
+		fatal("getifaddrs");
+
+	memset(mac, 0, sizeof(*mac));
+
+	for (ifa = ifap; ifa != NULL; ifa = ifa->ifa_next) {
+		if (strcmp(if_name, ifa->ifa_name) != 0)
+			continue;
+
+		if (ifa->ifa_addr->sa_family == AF_LINK) {
+			sdl = (struct sockaddr_dl *)ifa->ifa_addr;
+			if (sdl->sdl_type != IFT_ETHER ||
+			    sdl->sdl_alen != ETHER_ADDR_LEN)
+				continue;
+
+			memcpy(mac->ether_addr_octet, LLADDR(sdl),
+			    ETHER_ADDR_LEN);
+			ret = 0;
+			goto done;
+		}
+	}
+ done:
+	freeifaddrs(ifap);
+	return (ret);
+}
+
+
+void
+frontend_startup(void)
+{
+	struct if_nameindex	*ifnidxp, *ifnidx;
+
+	if (!event_initialized(&ev_route))
+		fatalx("%s: did not receive a route socket from the main "
+		    "process", __func__);
+
+	event_add(&ev_route, NULL);
+
+	if (!event_initialized(&dhcp6ev.ev))
+		fatalx("%s: did not receive a dhcp6 socket fd from the main "
+		    "process", __func__);
+
+	event_add(&dhcp6ev.ev, NULL);
+
+	if ((ifnidxp = if_nameindex()) == NULL)
+		fatalx("if_nameindex");
+
+	frontend_imsg_compose_main(IMSG_STARTUP_DONE, 0, NULL, 0);
+
+	for(ifnidx = ifnidxp; ifnidx->if_index !=0 && ifnidx->if_name != NULL;
+	    ifnidx++) {
+		update_iface(ifnidx->if_index, ifnidx->if_name);
+	}
+
+	if_freenameindex(ifnidxp);
 }
 
 void
@@ -375,7 +575,7 @@ handle_route_message(struct rt_msghdr *rtm)
 			frontend_imsg_compose_engine(IMSG_REMOVE_IF, 0, 0,
 			    &if_index, sizeof(if_index));
 		} else {
-			xflags = if_get_xflags(if_name);
+			xflags = get_xflags(if_name);
 			if (xflags == -1 || !(xflags & IFXF_AUTOCONF6)) {
 				log_debug("RTM_IFINFO: %s(%d) no(longer) "
 				   "autoconf6", if_name, ifm->ifm_index);
@@ -383,229 +583,19 @@ handle_route_message(struct rt_msghdr *rtm)
 				frontend_imsg_compose_engine(IMSG_REMOVE_IF, 0,
 				    0, &if_index, sizeof(if_index));
 			} else {
-				if_update(ifm->ifm_index, if_name);
+				update_iface(ifm->ifm_index, if_name);
 			}
 		}
 		break;
 	default:
+		log_debug("unexpected RTM: %d", rtm->rtm_type);
 		break;
 	}
 
 }
 
-static int
-frontend_imsg_compose_engine(int type, uint32_t peerid, pid_t pid,
-    void *data, uint16_t datalen)
-{
-	return (imsg_compose_event(iev_engine, type, peerid, pid, -1,
-	    data, datalen));
-}
-
-static void
-frontend_dispatch_engine(int fd, short event, void *bula)
-{
-	struct imsgev		*iev = bula;
-	struct imsgbuf		*ibuf = &iev->ibuf;
-	struct imsg		 imsg;
-	struct imsg_dhcp6	 dhcp6;
-	ssize_t			 n;
-	int			 shut = 0;
-
-	if (event & EV_READ) {
-		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
-			fatal("imsg_read error");
-		if (n == 0)	/* Connection closed. */
-			shut = 1;
-	}
-	if (event & EV_WRITE) {
-		if ((n = msgbuf_write(&ibuf->w)) == -1 && errno != EAGAIN)
-			fatal("msgbuf_write");
-		if (n == 0)	/* Connection closed. */
-			shut = 1;
-	}
-
-	for (;;) {
-		if ((n = imsg_get(ibuf, &imsg)) == -1)
-			fatal("%s: imsg_get error", __func__);
-		if (n == 0)	/* No more messages. */
-			break;
-
-		switch (imsg.hdr.type) {
-		case IMSG_DHCP6:
-			if (IMSG_DATA_SIZE(imsg) != sizeof(dhcp6))
-				fatalx("%s: IMSG_DHCP6 wrong length: %lu",
-				    __func__, IMSG_DATA_SIZE(imsg));
-			memcpy(&dhcp6, imsg.data, sizeof(dhcp6));
-			frontend_send_dhcp6(&dhcp6);
-			break;
-		default:
-			log_debug("%s: error handling imsg %d", __func__,
-			    imsg.hdr.type);
-			break;
-		}
-		imsg_free(&imsg);
-	}
-	if (!shut)
-		imsg_event_add(iev);
-	else {
-		/* This pipe is dead. Remove its event handler. */
-		event_del(&iev->ev);
-		event_loopexit(NULL);
-	}
-}
-
-int
-if_get_flags(char *if_name)
-{
-	struct ifreq		 ifr;
-
-	(void) strlcpy(ifr.ifr_name, if_name, sizeof(ifr.ifr_name));
-	if (ioctl(ioctlsock, SIOCGIFFLAGS, (caddr_t)&ifr) == -1)
-		fatal("SIOCGIFFLAGS");
-	return ifr.ifr_flags;
-}
-
-int
-if_get_xflags(char *if_name)
-{
-	struct ifreq		 ifr;
-
-	(void) strlcpy(ifr.ifr_name, if_name, sizeof(ifr.ifr_name));
-	if (ioctl(ioctlsock, SIOCGIFXFLAGS, (caddr_t)&ifr) == -1)
-		fatal("SIOCGIFXFLAGS");
-	return ifr.ifr_flags;
-}
-
-int
-if_get_hwaddr(char *if_name, struct ether_addr *mac)
-{
-	struct ifaddrs		*ifap, *ifa;
-	struct sockaddr_dl	*sdl;
-	int			 ret = -1;
-
-	if (mac == NULL)
-		fatal("mac can not be NULL");
-
-	if (getifaddrs(&ifap) != 0)
-		fatal("getifaddrs");
-
-	memset(mac, 0, sizeof(*mac));
-
-	for (ifa = ifap; ifa != NULL; ifa = ifa->ifa_next) {
-		if (strcmp(if_name, ifa->ifa_name) != 0)
-			continue;
-
-		if (ifa->ifa_addr->sa_family == AF_LINK) {
-			sdl = (struct sockaddr_dl *)ifa->ifa_addr;
-			if (sdl->sdl_type != IFT_ETHER ||
-			    sdl->sdl_alen != ETHER_ADDR_LEN)
-				continue;
-
-			memcpy(mac->ether_addr_octet, LLADDR(sdl),
-			    ETHER_ADDR_LEN);
-			ret = 0;
-			goto done;
-		}
-	}
- done:
-	freeifaddrs(ifap);
-	return (ret);
-}
-
 void
-if_update(uint32_t if_index, char* if_name)
-{
-	struct imsg_ifinfo	 imsg_ifinfo;
-	int			 flags, xflags;
-
-	flags = if_get_flags(if_name);
-	xflags = if_get_xflags(if_name);
-
-	if (!(xflags & IFXF_AUTOCONF6))
-		return;
-
-	memset(&imsg_ifinfo, 0, sizeof(imsg_ifinfo));
-
-	imsg_ifinfo.if_index = if_index;
-	imsg_ifinfo.running = (flags & (IFF_UP | IFF_RUNNING)) == (IFF_UP |
-	    IFF_RUNNING);
-
-	if (if_get_hwaddr(if_name, &imsg_ifinfo.hw_address) != 0) {
-		log_debug("%s: failed to get HW address for iface %s.",
-		    __func__, if_name);
-		return;
-	}
-
-	log_debug("%s: updating interface %s.",
-	    __func__, if_name);
-	frontend_imsg_compose_engine(IMSG_UPDATE_IF, 0, 0, &imsg_ifinfo,
-	    sizeof(imsg_ifinfo));
-}
-
-static void
-frontend_startup(void)
-{
-	struct if_nameindex	*ifnidxp, *ifnidx;
-
-	if (!event_initialized(&ev_route))
-		fatalx("%s: did not receive a route socket from the main "
-		    "process", __func__);
-
-	event_add(&ev_route, NULL);
-
-	if (!event_initialized(&dhcp6ev.ev))
-		fatalx("%s: did not receive a dhcp6 socket fd from the main "
-		    "process", __func__);
-
-	event_add(&dhcp6ev.ev, NULL);
-
-	if ((ifnidxp = if_nameindex()) == NULL)
-		fatalx("if_nameindex");
-
-	frontend_imsg_compose_main(IMSG_STARTUP_DONE, 0, NULL, 0);
-
-	for(ifnidx = ifnidxp; ifnidx->if_index !=0 && ifnidx->if_name != NULL;
-	    ifnidx++) {
-		if_update(ifnidx->if_index, ifnidx->if_name);
-	}
-
-	if_freenameindex(ifnidxp);
-}
-
-static void
-frontend_send_dhcp6(struct imsg_dhcp6 *imsg)
-{
-	struct cmsghdr		*cm;
-	struct in6_pktinfo	*pi;
-	ssize_t			 len;
-	int			 hoplimit = 255;
-
-	sndmhdr.msg_name = alldhcp6;
-	sndmhdr.msg_iov[0].iov_base = imsg->packet;
-	sndmhdr.msg_iov[0].iov_len = imsg->len;
-
-	cm = CMSG_FIRSTHDR(&sndmhdr);
-	/* specify the outgoing interface */
-	cm->cmsg_level = IPPROTO_IPV6;
-	cm->cmsg_type = IPV6_PKTINFO;
-	cm->cmsg_len = CMSG_LEN(sizeof(struct in6_pktinfo));
-	pi = (struct in6_pktinfo *)CMSG_DATA(cm);
-	pi->ipi6_ifindex = imsg->if_index;
-
-	/* specify the hop limit of the packet */
-	cm = CMSG_NXTHDR(&sndmhdr, cm);
-	cm->cmsg_level = IPPROTO_IPV6;
-	cm->cmsg_type = IPV6_HOPLIMIT;
-	cm->cmsg_len = CMSG_LEN(sizeof(int));
-	memcpy(CMSG_DATA(cm), &hoplimit, sizeof(int));
-
-	len = sendmsg(dhcp6sock, &sndmhdr, 0);
-	if (len == -1)
-		log_warn("sendmsg on %d", imsg->if_index);
-}
-
-void
-dh6client_recv(int fd, short events, void *arg)
+dhcpv6_receive(int fd, short events, void *arg)
 {
 	struct imsg_dhcp6	 msg;
 	struct in6_pktinfo	*pi = NULL;
@@ -649,4 +639,36 @@ dh6client_recv(int fd, short events, void *arg)
 	memcpy(msg.packet, dhcp6ev.answer, len);
 
 	frontend_imsg_compose_engine(IMSG_DHCP6, 0, 0, &msg, sizeof(msg));
+}
+
+void
+send_dhcp6(struct imsg_dhcp6 *imsg)
+{
+	struct in6_pktinfo	*pi;
+	struct cmsghdr		*cm;
+	ssize_t			 len;
+	int			 hoplimit = 255;
+
+	log_info("%s(%u)", __func__, imsg->if_index);
+
+	sndmhdr.msg_name = alldhcp6;
+	sndmhdr.msg_iov[0].iov_base = imsg->packet;
+	sndmhdr.msg_iov[0].iov_len = imsg->len;
+
+	cm = CMSG_FIRSTHDR(&sndmhdr);
+	cm->cmsg_level = IPPROTO_IPV6;
+	cm->cmsg_type = IPV6_PKTINFO;
+	cm->cmsg_len = CMSG_LEN(sizeof(struct in6_pktinfo));
+	pi = (struct in6_pktinfo *)CMSG_DATA(cm);
+	memset(&pi->ipi6_addr, 0, sizeof(pi->ipi6_addr));
+	pi->ipi6_ifindex = imsg->if_index;
+
+	cm = CMSG_NXTHDR(&sndmhdr, cm);
+	cm->cmsg_level = IPPROTO_IPV6;
+	cm->cmsg_type = IPV6_HOPLIMIT;
+	cm->cmsg_len = CMSG_LEN(sizeof(int));
+	memcpy(CMSG_DATA(cm), &hoplimit, sizeof(int));
+
+	if ((len = sendmsg(dhcp6sock, &sndmhdr, 0)) != imsg->len)
+		log_warn("sendmsg %zd", len);
 }

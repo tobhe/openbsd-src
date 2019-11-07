@@ -19,12 +19,12 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <sys/queue.h>
-#include <sys/syslog.h>
 #include <sys/socket.h>
+#include <sys/syslog.h>
+#include <sys/uio.h>
 #include <sys/wait.h>
 
 #include <net/if.h>
@@ -33,46 +33,50 @@
 #include <netinet/if_ether.h>
 #include <netinet6/in6_var.h>
 
-#include <netdb.h>
-#include <unistd.h>
-#include <string.h>
 #include <err.h>
 #include <errno.h>
-#include <event.h>
 #include <fcntl.h>
+#include <event.h>
 #include <imsg.h>
-#include <signal.h>
-#include <stdio.h>
-#include <stddef.h>
-#include <stdlib.h>
+#include <netdb.h>
 #include <pwd.h>
-#include <inttypes.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <signal.h>
+#include <unistd.h>
 
+#include "log.h"
 #include "dhcp6.h"
 #include "dh6client.h"
+#include "frontend.h"
+#include "engine.h"
 
-__dead void	 usage(void);
-__dead void	 main_shutdown(void);
+__dead void	usage(void);
+__dead void	main_shutdown(void);
 
-void		 main_sig_handler(int, short, void *);
+void	main_sig_handler(int, short, void *);
 
-static pid_t	 start_child(int, char *, int, int, int);
+static pid_t	start_child(int, char *, int, int, int);
 
-void		 main_dispatch_frontend(int, short, void *);
-void		 main_dispatch_engine(int, short, void *);
+void	main_dispatch_frontend(int, short, void *);
+void	main_dispatch_engine(int, short, void *);
+void	configure_interface(struct imsg_configure_address *);
+int	get_duid(char *, struct dhcp6_duid *);
 
-static int	 main_imsg_send_ipc_sockets(struct imsgbuf *, struct imsgbuf *);
-int		 main_imsg_compose_frontend(int, pid_t, void *, uint16_t);
-int		 main_imsg_compose_frontend_fd(int, pid_t, int);
-int		 main_imsg_compose_engine(int, pid_t, void *, uint16_t);
+static int	main_imsg_send_ipc_sockets(struct imsgbuf *, struct imsgbuf *);
+int		main_imsg_compose_frontend(int, pid_t, void *, uint16_t);
+int		main_imsg_compose_frontend_fd(int, pid_t, int);
+int		main_imsg_compose_engine(int, pid_t, void *, uint16_t);
 
-struct imsgev	*iev_frontend;
-struct imsgev	*iev_engine;
+struct imsgev		*iev_frontend;
+struct imsgev		*iev_engine;
 
-pid_t	 	 frontend_pid;
-pid_t	 	 engine_pid;
+pid_t	 frontend_pid;
+pid_t	 engine_pid;
 
-int 		 ioctl_sock;
+int	 ioctl_sock;
 
 void
 main_sig_handler(int sig, short event, void *arg)
@@ -81,6 +85,7 @@ main_sig_handler(int sig, short event, void *arg)
 	 * Normal signal handler rules don't apply because libevent
 	 * decouples for us.
 	 */
+
 	switch (sig) {
 	case SIGTERM:
 	case SIGINT:
@@ -103,6 +108,7 @@ usage(void)
 int
 main(int argc, char *argv[])
 {
+	struct addrinfo		 hints, *res;
 	struct event		 ev_sigint, ev_sigterm;
 	int			 ch;
 	int			 debug = 0, engine_flag = 0, frontend_flag = 0;
@@ -112,7 +118,6 @@ main(int argc, char *argv[])
 	int			 pipe_main2engine[2];
 	int			 dhcp6sock, on = 1, error;
 	int			 frontend_routesock, rtfilter;
-	struct addrinfo		 hints, *res;
 
 	log_init(1, LOG_DAEMON);	/* Log to stderr until daemonized. */
 	log_setverbose(1);
@@ -121,13 +126,11 @@ main(int argc, char *argv[])
 	if (saved_argv0 == NULL)
 		saved_argv0 = "dh6client";
 
-	while ((ch = getopt(argc, argv, "dtTEFs:v")) != -1) {
+	while ((ch = getopt(argc, argv, "dEFv")) != -1) {
 		switch (ch) {
 		case 'd':
 			debug = 1;
 			break;
-		case 't':
-			return test_parser();
 		case 'E':
 			engine_flag = 1;
 			break;
@@ -166,6 +169,8 @@ main(int argc, char *argv[])
 	if (!debug)
 		daemon(0, 0);
 
+	log_info("startup");
+
 	if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK,
 	    PF_UNSPEC, pipe_main2frontend) == -1)
 		fatal("main2frontend socketpair");
@@ -194,10 +199,10 @@ main(int argc, char *argv[])
 	signal(SIGHUP, SIG_IGN);
 
 	/* Setup pipes to children. */
+
 	if ((iev_frontend = malloc(sizeof(struct imsgev))) == NULL ||
 	    (iev_engine = malloc(sizeof(struct imsgev))) == NULL)
 		fatal(NULL);
-
 	imsg_init(&iev_frontend->ibuf, pipe_main2frontend[0]);
 	iev_frontend->handler = main_dispatch_frontend;
 	imsg_init(&iev_engine->ibuf, pipe_main2engine[0]);
@@ -217,16 +222,16 @@ main(int argc, char *argv[])
 	if (main_imsg_send_ipc_sockets(&iev_frontend->ibuf, &iev_engine->ibuf))
 		fatal("could not establish imsg links");
 
-	if ((ioctl_sock = socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, 0)) < 0)
+	if ((ioctl_sock = socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, 0)) == -1)
 		fatal("socket");
 
 	/* DHCP6 Socket */
-	bzero(&hints, sizeof(hints));
+	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_INET6;
 	hints.ai_socktype = SOCK_DGRAM;
 	hints.ai_protocol = IPPROTO_UDP;
 	hints.ai_flags	= AI_PASSIVE;
-	if ((error = getaddrinfo(NULL, "546", &hints, &res)) == -1)
+	if ((error = getaddrinfo(NULL, "dhcpv6-client", &hints, &res)) == -1)
 		fatalx("%s: getaddrinfo: %s", __func__, gai_strerror(error));
 	res->ai_socktype |= SOCK_CLOEXEC;
 
@@ -264,8 +269,13 @@ main(int argc, char *argv[])
 	    &rtfilter, sizeof(rtfilter)) == -1)
 		fatal("setsockopt(ROUTE_MSGFILTER)");
 
+	if (get_duid(DH6CLIENT_DUID_FILE, &duid) == -1)
+		fatalx("get_duid");
+
 	if (pledge("stdio sendfd wroute", NULL) == -1)
 		fatal("pledge");
+
+	main_imsg_compose_engine(IMSG_DUID, 0, duid.duid_id, duid.duid_len);
 
 	main_imsg_compose_frontend_fd(IMSG_DHCP6SOCK, 0, dhcp6sock);
 
@@ -306,6 +316,7 @@ main_shutdown(void)
 	free(iev_frontend);
 	free(iev_engine);
 
+	log_info("terminating");
 	exit(0);
 }
 
@@ -346,6 +357,8 @@ start_child(int p, char *argv0, int fd, int debug, int verbose)
 	if (debug)
 		argv[argc++] = "-d";
 	if (verbose)
+		argv[argc++] = "-v";
+	if (verbose > 1)
 		argv[argc++] = "-v";
 	argv[argc++] = NULL;
 
@@ -388,6 +401,7 @@ main_dispatch_frontend(int fd, short event, void *bula)
 			if (pledge("stdio wroute", NULL) == -1)
 				fatal("pledge");
 			break;
+			break;
 		default:
 			log_debug("%s: error handling imsg %d", __func__,
 			    imsg.hdr.type);
@@ -408,11 +422,11 @@ void
 main_dispatch_engine(int fd, short event, void *bula)
 {
 	struct imsgev			*iev = bula;
-	struct imsgbuf  		*ibuf;
+	struct imsgbuf			*ibuf;
 	struct imsg			 imsg;
 	struct imsg_configure_address	 address;
-	ssize_t		 		 n;
-	int		 		 shut = 0;
+	ssize_t				 n;
+	int				 shut = 0;
 
 	ibuf = &iev->ibuf;
 
@@ -442,7 +456,7 @@ main_dispatch_engine(int fd, short event, void *bula)
 				    "length: %lu", __func__,
 				    IMSG_DATA_SIZE(imsg));
 			memcpy(&address, imsg.data, sizeof(address));
-			dh6client_iface_configure(&address);
+			configure_interface(&address);
 			break;
 		default:
 			log_debug("%s: error handling imsg %d", __func__,
@@ -537,13 +551,14 @@ main_imsg_compose_engine(int type, pid_t pid, void *data, uint16_t datalen)
 }
 
 void
-dh6client_iface_configure(struct imsg_configure_address *address)
+configure_interface(struct imsg_configure_address *address)
 {
+
 	struct in6_aliasreq	 in6_addreq;
 	time_t			 t;
 	char			*if_name;
 
-	bzero(&in6_addreq, sizeof(in6_addreq));
+	memset(&in6_addreq, 0, sizeof(in6_addreq));
 
 	if_name = if_indextoname(address->if_index, in6_addreq.ifra_name);
 	if (if_name == NULL) {
@@ -570,9 +585,44 @@ dh6client_iface_configure(struct imsg_configure_address *address)
 
 	in6_addreq.ifra_flags |= IN6_IFF_AUTOCONF;
 
-	log_debug("iface%d: %s: %s, %u %u",address->if_index, __func__, if_name,
-	    address->pltime, address->vltime);
+
+	log_debug("%s: %s", __func__, if_name);
 
 	if (ioctl(ioctl_sock, SIOCAIFADDR_IN6, &in6_addreq) == -1)
 		fatal("SIOCAIFADDR_IN6");
+}
+
+int
+get_duid(char *path, struct dhcp6_duid *id)
+{
+	FILE			*fp = NULL;
+	char			 tmp[3];
+	size_t			 i;
+	int			 ret = -1;
+
+	memset(id, 0, sizeof(*id));
+	memset(tmp, 0, sizeof(tmp));
+
+	if ((fp = fopen(path, "r")) == NULL) {
+		log_info("%s: error: can not read duid from %s", __func__,
+		    path);
+		return (-1);
+	}
+
+	id->duid_len = 16;
+	id->duid_id = calloc(id->duid_len, sizeof(uint8_t));
+
+	for (i = 0; i < id->duid_len; i++) {
+		if ((fread(tmp, sizeof(char), sizeof(tmp) - 1, fp))
+		    != sizeof(tmp) - 1) {
+			log_info("%s: error failed read:", __func__);
+			goto err;
+		}
+		id->duid_id[i] = strtol(tmp, NULL, 16);
+	}
+
+	ret = 0;
+ err:
+	fclose(fp);
+	return (ret);
 }
