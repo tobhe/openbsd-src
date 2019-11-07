@@ -601,6 +601,7 @@ struct iked_message {
 	struct ibuf		*msg_nonce;	/* dh NONCE */
 	uint16_t		 msg_dhgroup;	/* dh group */
 	struct ibuf		*msg_ke;	/* dh key exchange */
+	struct ibuf		*msg_intauth;	/* IntAuth_A | IntAuth_B */
 	struct iked_id		 msg_auth;	/* AUTH payload */
 	struct iked_id		 msg_id;
 	struct iked_id		 msg_cert;

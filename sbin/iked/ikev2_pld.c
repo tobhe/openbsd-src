@@ -1862,6 +1862,9 @@ ikev2_pld_e(struct iked *env, struct ikev2_payload *pld,
 	buf = msgbuf + offset;
 	len = left;
 
+	/* IntAuth_I_A */
+	msg->msg_intauth = ibuf_new(ibuf_data(msg->msg_data), offset);
+
 	if ((e = ibuf_new(buf, len)) == NULL)
 		goto done;
 
@@ -1885,6 +1888,9 @@ ikev2_pld_e(struct iked *env, struct ikev2_payload *pld,
 	emsg.msg_e = 1;
 	emsg.msg_parent = msg;
 	TAILQ_INIT(&emsg.msg_proposals);
+
+	/* IntAuth_I_A | IntAuth_I_P */
+	ibuf_cat(msg->msg_intauth, e);
 
 	ret = ikev2_pld_payloads(env, &emsg, 0, ibuf_size(e),
 	    pld->pld_nextpayload);

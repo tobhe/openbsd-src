@@ -757,6 +757,29 @@ ikev2_msg_send_encrypt(struct iked *env, struct iked_sa *sa, struct ibuf **ep,
 	TAILQ_INIT(&resp.msg_proposals);
 
 	(void)ikev2_pld_parse(env, hdr, &resp, 0);
+	
+	if (exchange == IKEV2_EXCHANGE_IKE_INTERMEDIATE) {
+		void	*ptr;
+		size_t	 tmplen;
+		size_t   prflen;
+		prflen = hash_length(sa->sa_prf);
+		hash_init(sa->sa_prf);
+		hash_update(sa->sa_prf, ibuf_data(resp.msg_intauth),
+		    ibuf_length(resp.msg_intauth));
+		if (sa->sa_int_auth == NULL) {
+			if ((sa->sa_int_auth = ibuf_new(NULL, prflen)) == NULL)
+				return (-1);
+			ptr = ibuf_data(sa->sa_int_auth);
+		} else {
+			if ((ptr = ibuf_reserve(sa->sa_int_auth, prflen)) == NULL)
+				return (-1);
+		}
+		hash_final(sa->sa_prf, ptr, &tmplen);
+		if (tmplen != prflen) {
+			log_debug("%s: hash failure", __func__);
+			return (-1);
+		}
+	}
 
 	ret = ikev2_msg_send(env, &resp);
 
@@ -936,6 +959,12 @@ ikev2_msg_auth(struct iked *env, struct iked_sa *sa, int response)
 	hash_final(sa->sa_prf, ptr, &tmplen);
 
 	if (tmplen != hash_length(sa->sa_prf))
+		goto fail;
+	
+	log_debug("%s: intermediate auth data.", __func__);
+	print_hex(ibuf_data(sa->sa_int_auth), 0, ibuf_size(sa->sa_int_auth));
+	
+	if (ibuf_cat(authmsg, sa->sa_int_auth) != 0)
 		goto fail;
 
 	log_debug("%s: %s auth data length %zu",

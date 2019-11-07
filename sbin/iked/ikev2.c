@@ -1093,11 +1093,16 @@ ikev2_init_recv(struct iked *env, struct iked_message *msg,
 			}
 		}
 
+		if (!msg->msg_intauth) {
+		    log_info("%s: failed IntAuth", __func__);
+			return;
+		}
+
 		/* Update authentication hash with new message */
 		prflen = hash_length(sa->sa_prf);
 		hash_init(sa->sa_prf);
-		hash_update(sa->sa_prf, ibuf_data(msg->msg_data),
-		    ibuf_length(msg->msg_data));
+		hash_update(sa->sa_prf, ibuf_data(msg->msg_intauth),
+		    ibuf_length(msg->msg_intauth));
 		if (sa->sa_int_auth == NULL) {
 			if ((sa->sa_int_auth = ibuf_new(NULL, prflen)) == NULL)
 				return;
@@ -1310,6 +1315,9 @@ ikev2_init_ike_sa_peer(struct iked *env, struct iked_policy *pol,
 		    == -1)
 			goto done;
 	}
+	if ((len = ikev2_add_intermediate(env, buf, &pld, len))
+	    == -1)
+		goto done;
 
 	if (env->sc_nattmode != NATT_DISABLE) {
 		if (ntohs(port) == env->sc_nattport) {
@@ -2926,6 +2934,9 @@ ikev2_resp_ike_sa_init(struct iked *env, struct iked_message *msg)
 		    == -1)
 			goto done;
 	}
+	if ((len = ikev2_add_intermediate(env, buf, &pld, len))
+	    == -1)
+		goto done;
 
 	if ((env->sc_nattmode != NATT_DISABLE) &&
 	    msg->msg_local.ss_family != AF_UNSPEC) {
@@ -5393,11 +5404,16 @@ ikev2_sa_update_responder(struct iked *env, struct iked_sa *sa,
 		}
 	}
 
+	if (!msg->msg_intauth) {
+	    log_info("%s: failed IntAuth", __func__);
+		return (-1);
+	}
+
 	/* Update authentication hash with new message */
 	prflen = hash_length(sa->sa_prf);
 	hash_init(sa->sa_prf);
-	hash_update(sa->sa_prf, ibuf_data(msg->msg_data),
-	    ibuf_length(msg->msg_data));
+	hash_update(sa->sa_prf, ibuf_data(msg->msg_intauth),
+	    ibuf_length(msg->msg_intauth));
 
 	if (sa->sa_int_auth == NULL) {
 		if ((sa->sa_int_auth = ibuf_new(NULL, prflen)) == NULL)
