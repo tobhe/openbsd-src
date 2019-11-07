@@ -70,6 +70,7 @@ const struct dhcp6_constmap options_map[] = {
 	{ DHCP6_OPTION_RAPID_COMMIT,		"RAPID_COMMIT" },
 	{ DHCP6_OPTION_IAPD,			"IA_PD" },
 	{ DHCP6_OPTION_IAPREFIX,		"IA_PREFIX" },
+	{ 0 },
 };
 
 static int	buf_write(uint8_t **, void *, size_t, size_t *);
@@ -171,15 +172,19 @@ dhcp6_options_print(struct dhcp6_options *opts, int depth)
 			dhcp6_options_statuscode_verify(&status,
 			    opt->option_data,
 			    opt->option_data_len);
-			printf("\t\t%sStatus: [%u]: %s\n", tabs, status.status_code,
-			    status.status_msg);
+			printf("\t\t%sStatus: [%u]: %s\n", tabs,
+			    status.status_code, status.status_msg);
 			break;
 		}
 		default:
+			if (opt->option_length == 0)
+				break;
 			printf("\t\t%sBytes:\t", tabs);
-			for (i = 0; i < opt->option_data_len && opt->option_data; i++) {
+			for (i = 0; i < opt->option_data_len && opt->option_data;
+			    i++) {
 				printf("%02x", opt->option_data[i]);
 			}
+			printf("\n");
 			break;
 		}
 		printf("\n");
@@ -513,19 +518,13 @@ dhcp6_msg_parse(uint8_t* data, size_t length)
 	msg = calloc(1, sizeof(*msg));
 	TAILQ_INIT(&msg->msg_options);
 
-	log_info("%s: %zu, %zu", __func__, sizeof(msg->msg_type),
-	    sizeof(msg->msg_transaction_id));
-
 	/* Header */
-	log_info("%s: %p", __func__, data);
 	if (buf_get(&msg->msg_type, &data,
 	    sizeof(msg->msg_type), &length) == -1)
 		goto clean;
-	log_info("%s: %p", __func__, data);
 	if (buf_get(&msg->msg_transaction_id, &data,
 	    sizeof(msg->msg_transaction_id), &length) == -1)
 		goto clean;
-	log_info("%s: %p", __func__, data);
 
 	/* Options */
 	if (dhcp6_options_parse(&msg->msg_options, data, length, 0) == NULL) {
@@ -553,20 +552,15 @@ dhcp6_options_parse(struct dhcp6_options *opts, uint8_t* data, size_t length,
 		}
 		TAILQ_INIT(&opt->option_options);
 
-		log_info("%s: %zu, %zu", __func__, sizeof(opt->option_code), sizeof(opt->option_length));
-
-		log_info("%s: %p", __func__, data);
 		if (buf_get(&opt->option_code, &data, sizeof(opt->option_code),
 		    &length) == -1)
 			goto clean;
 		opt->option_code = ntohs(opt->option_code);
 
-		log_info("%s: %p", __func__, data);
 		if (buf_get(&opt->option_length, &data,
 		    sizeof(opt->option_length),
 		    &length) == -1)
 			goto clean;
-		log_info("%s: %p", __func__, data);
 
 		opt->option_length = ntohs(opt->option_length);
 		if (opt->option_length > DHCP6_MSG_LEN_MAX) {

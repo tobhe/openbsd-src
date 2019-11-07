@@ -640,9 +640,6 @@ dh6client_parse(struct dh6client_iface *iface, struct imsg_dhcp6 *dhcp6)
 	char				 buffer[INET6_ADDRSTRLEN];
 	const char			*ptr;
 
-	log_info("RECV:");
-	print_hex(dhcp6->packet, 0, dhcp6->len);
-
 	if ((msg = dhcp6_msg_parse(dhcp6->packet, dhcp6->len)) == NULL)
 		return (-1);
 
