@@ -84,48 +84,62 @@
 
 enum if_state {
 	IF_DOWN,
-	IF_DELAY,
 	IF_PROBE,
 	IF_IDLE,
+	IF_DEAD,
 };
 
 const char* if_state_name[] = {
 	"IF_DOWN",
-	"IF_DELAY",
 	"IF_PROBE",
 	"IF_IDLE",
+	"IF_DEAD",
+};
+
+struct address {
+	LIST_ENTRY(address)		 entries;
+	uint32_t			 if_index;
+	struct sockaddr_in6		 addr;
+	int				 prefix;
+	uint32_t			 vltime;
+	uint32_t			 pltime;
 };
 
 struct dh6client_iface {
 	LIST_ENTRY(dh6client_iface)	 entries;
 	enum if_state			 state;
 	struct event			 timer;
-	struct timeval			 start_time;
 	int				 probes;
 	uint32_t			 if_index;
 	int				 running;
 	struct ether_addr		 hw_address;
 	struct sockaddr_in6		 ll_address;
+	struct address			*address;
 	int				 link_state;
 	uint32_t			 cur_mtu;
 	uint32_t			 options;
+	struct timeval			 start_time;
 };
 
 LIST_HEAD(, dh6client_iface) dh6client_interfaces;
 
-__dead void	 	 engine_shutdown(void);
+__dead void		 engine_shutdown(void);
 void			 engine_sig_handler(int sig, short, void *);
 void			 engine_dispatch_frontend(int, short, void *);
 void			 engine_dispatch_main(int, short, void *);
 struct dh6client_iface	*get_dh6client_iface_by_id(uint32_t);
 void			 remove_dh6client_iface(uint32_t);
+void			 parse_dhcp6(struct dh6client_iface *,
+			    struct imsg_dhcp6 *);
+void			 timeout_from_lifetime(struct dh6client_iface *);
+void			 configure_address(struct dh6client_iface *);
+int			 send_solicit(struct dh6client_iface *);
 void			 start_probe(struct dh6client_iface *);
 void			 iface_timeout(int, short, void *);
-void			 iface_configure(struct dh6client_iface *,
-			    struct dhcp6_opt_iaaddr *);
-int			 dh6client_parse(struct dh6client_iface *,
-			    struct imsg_dhcp6 *);
-int			 dh6client_send_solicit(struct dh6client_iface *);
+void			 address_timeout(int, short, void *);
+struct address*		 find_address_by_addr(struct dh6client_iface *,
+			    struct sockaddr_in6 *);
+
 void			 print_debug(const char *, ...);
 void			 print_hex(uint8_t *,  off_t, size_t);
 int			 engine_imsg_compose_main(int, pid_t, void *, uint16_t);
@@ -317,7 +331,7 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 			memcpy(&dhcp6, imsg.data, sizeof(dhcp6));
 			iface = get_dh6client_iface_by_id(dhcp6.if_index);
 			if (iface != NULL)
-				dh6client_parse(iface, &dhcp6);
+				parse_dhcp6(iface, &dhcp6);
 			break;
 		case IMSG_UPDATE_IF:
 			if (IMSG_DATA_SIZE(imsg) != sizeof(imsg_ifinfo))
@@ -338,6 +352,7 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 				memcpy(&iface->hw_address,
 				    &imsg_ifinfo.hw_address,
 				    sizeof(iface->hw_address));
+				iface->address = calloc(1, sizeof(struct address));
 				LIST_INSERT_HEAD(&dh6client_interfaces,
 				    iface, entries);
 				if (iface->running)
@@ -345,27 +360,19 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 				else
 					iface->state = IF_DOWN;
 			} else {
-				int need_refresh = 0;
-
-				if (memcmp(&iface->hw_address,
-				    &imsg_ifinfo.hw_address,
-				    sizeof(struct ether_addr)) != 0) {
-					memcpy(&iface->hw_address,
-					    &imsg_ifinfo.hw_address,
-					    sizeof(struct ether_addr));
-					need_refresh = 1;
-				}
-
-				if (iface->state != IF_DOWN &&
-				    imsg_ifinfo.running && need_refresh)
-					start_probe(iface);
-
 				iface->running = imsg_ifinfo.running;
 				if (!iface->running) {
+					log_info("%s: iface down.",
+					    __func__);
 					iface->state = IF_DOWN;
 					if (evtimer_pending(&iface->timer,
 					    NULL))
 						evtimer_del(&iface->timer);
+				} else if (iface->state == IF_DOWN &&
+				    imsg_ifinfo.running) {
+					log_info("%s: restarting iface.",
+					    __func__);
+					start_probe(iface);
 				}
 			}
 			break;
@@ -482,44 +489,6 @@ remove_dh6client_iface(uint32_t if_index)
 	free(iface);
 }
 
-void
-iface_timeout(int fd, short events, void *arg)
-{
-	struct dh6client_iface	*iface = (struct dh6client_iface *)arg;
-	struct timeval		 tv;
-
-	log_debug("%s[%d]: %s", __func__, iface->if_index,
-	    if_state_name[iface->state]);
-
-	switch (iface->state) {
-		case IF_DELAY:
-		case IF_PROBE:
-			if (iface->probes == 0) {
-				if (gettimeofday(&iface->start_time,
-				    NULL) == -1)
-					fatal("gettimeofday");
-			}
-			if (dh6client_send_solicit(iface) == -1) {
-				/* XXX: Handle with UPDATE_IF message */
-				log_debug("%s: iface %d failed, disabling",
-				    __func__, iface->if_index);
-				iface->state = IF_IDLE;
-			}
-			if (++iface->probes >= MAX_DHCP6_SOLICITATIONS)
-				iface->state = IF_IDLE;
-			else {
-				tv.tv_sec = DHCP6_SOLICITATION_INTERVAL;
-				tv.tv_usec = arc4random_uniform(1000000);
-				evtimer_add(&iface->timer, &tv);
-			}
-			break;
-		case IF_DOWN:
-		case IF_IDLE:
-		default:
-			break;
-	}
-}
-
 struct dh6client_iface*
 get_dh6client_iface_by_id(uint32_t if_index)
 {
@@ -533,25 +502,19 @@ get_dh6client_iface_by_id(uint32_t if_index)
 }
 
 void
-iface_configure(struct dh6client_iface *iface, struct dhcp6_opt_iaaddr *iaaddr)
+timeout_from_lifetime(struct dh6client_iface *iface)
 {
-	struct imsg_configure_address	 address;
 	struct timeval			 tv;
 	time_t				 lifetime;
 	int				 next_timeout;
 
-	address.if_index = iface->if_index;
-	memset(&address.mask.s6_addr, 0xff, 16);
-	address.addr = iaaddr->iaaddr_addr;
-	address.pltime = iaaddr->iaaddr_pltime;
-	address.vltime = iaaddr->iaaddr_vltime;
-
 	next_timeout = 0;
-	if (address.pltime > MAX_DHCP6_SOLICITATIONS *
+
+	if (iface->address->pltime > MAX_DHCP6_SOLICITATIONS *
 	    (DHCP6_SOLICITATION_INTERVAL + 1))
-		lifetime = address.pltime;
+		lifetime = iface->address->pltime;
 	else
-		lifetime = address.vltime;
+		lifetime = iface->address->vltime;
 
 	if (lifetime > MAX_DHCP6_SOLICITATIONS *
 	    (DHCP6_SOLICITATION_INTERVAL + 1)) {
@@ -560,16 +523,33 @@ iface_configure(struct dh6client_iface *iface, struct dhcp6_opt_iaaddr *iaaddr)
 		tv.tv_sec = next_timeout;
 		tv.tv_usec = arc4random_uniform(1000000);
 		evtimer_add(&iface->timer, &tv);
-		log_info("iface%d: %s: scheduling new timeout in %llds.%06ld",
-		    iface->if_index, __func__, tv.tv_sec, tv.tv_usec);
+		log_debug("%s: iface%d: scheduling new timeout in %llds.%06ld",
+		   __func__, iface->if_index, tv.tv_sec, tv.tv_usec);
 	}
+}
 
-	engine_imsg_compose_main(IMSG_CONFIGURE_ADDRESS, 0,
-	    &address, sizeof(address));
+void
+configure_address(struct dh6client_iface *iface)
+{
+	struct imsg_configure_address	 address;
+
+	timeout_from_lifetime(iface);
+	iface->state = IF_IDLE;
+
+	log_debug("%s: %d", __func__, iface->if_index);
+
+	address.if_index = iface->if_index;
+	address.addr = iface->address->addr;
+	memset(&address.mask.s6_addr, 0xff, 16);
+	address.vltime = iface->address->vltime;
+	address.pltime = iface->address->pltime;
+
+	engine_imsg_compose_main(IMSG_CONFIGURE_ADDRESS, 0, &address,
+	    sizeof(address));
 }
 
 int
-dh6client_send_solicit(struct dh6client_iface *iface)
+send_solicit(struct dh6client_iface *iface)
 {
 	struct dhcp6_msg	*msg;
 	struct dhcp6_options	*p;
@@ -630,18 +610,17 @@ dh6client_send_solicit(struct dh6client_iface *iface)
 	return (0);
 }
 
-int
-dh6client_parse(struct dh6client_iface *iface, struct imsg_dhcp6 *dhcp6)
+void
+parse_dhcp6(struct dh6client_iface *iface, struct imsg_dhcp6 *dhcp6)
 {
 	struct dhcp6_msg		*msg;
-	struct dhcp6_option		*opt, *pd, *sc;
+	struct dhcp6_option		*opt;
 	struct dhcp6_opt_iaaddr		 iaaddr;
-	struct dhcp6_opt_statuscode	 status;
 	char				 buffer[INET6_ADDRSTRLEN];
 	const char			*ptr;
 
 	if ((msg = dhcp6_msg_parse(dhcp6->packet, dhcp6->len)) == NULL)
-		return (-1);
+		return;
 
 	log_debug("%s: received message on interface %d.", __func__,
 	    iface->if_index);
@@ -650,6 +629,7 @@ dh6client_parse(struct dh6client_iface *iface, struct imsg_dhcp6 *dhcp6)
 
 	switch(msg->msg_type) {
 	case DHCP6_MSG_TYPE_ADVERTISE:
+	case DHCP6_MSG_TYPE_REPLY:
 		/* Rapid two message handshake */
 		if (iface->options & DH6CLIENT_IFACE_OPTION_RAPID) {
 			/* Configure IA_NA address */
@@ -662,11 +642,11 @@ dh6client_parse(struct dh6client_iface *iface, struct imsg_dhcp6 *dhcp6)
 					log_warn("iface%d: %s: IA_NA without "
 					    "address.", iface->if_index,
 					    __func__);
-					return (0);
+					return;
 				}
 				if ((ptr = inet_ntop(AF_INET6, opt->option_data,
 				    buffer, sizeof(buffer))) == NULL)
-					return (-1);
+					return;
 
 				log_info("iface%d: %s: IA_NA: IPv6 address: %s",
 				    iface->if_index, __func__, ptr);
@@ -674,40 +654,14 @@ dh6client_parse(struct dh6client_iface *iface, struct imsg_dhcp6 *dhcp6)
 				/* Configure Address  */
 				dhcp6_options_iaaddress_verify(&iaaddr,
 				    opt->option_data, 0);
-				iface_configure(iface, &iaaddr);
-			}
 
-			/* Configure IA_PD prefix */
-			if ((opt = dhcp6_options_get_option(&msg->msg_options,
-			    DHCP6_OPTION_IAPD)) != NULL) {
-				if ((pd = dhcp6_options_get_option(
-				    &opt->option_options,
-				    DHCP6_OPTION_IAPREFIX)) != NULL) {
-					if ((ptr = inet_ntop(AF_INET6,
-					    pd->option_data,
-					    buffer, sizeof(buffer))) == NULL)
-						return (-1);
+				iface->address->if_index = iface->if_index;
+				iface->address->addr = iaaddr.iaaddr_addr;
+				iface->address->vltime = iaaddr.iaaddr_vltime;
+				iface->address->pltime = iaaddr.iaaddr_pltime;
+				iface->address->prefix = 0;
 
-					log_info("iface%d: %s: IA_PD: IPv6 "
-					    "prefix", iface->if_index,
-					    __func__);
-
-					/* Configure Prefix  */
-					dhcp6_options_iaaddress_verify(&iaaddr,
-					    pd->option_data, 1);
-					iface_configure(iface, &iaaddr);
-				}
-				if ((sc = dhcp6_options_get_option(
-				    &opt->option_options,
-				    DHCP6_OPTION_STATUSCODE)) != NULL) {
-					dhcp6_options_statuscode_verify(&status,
-					    sc->option_data,
-					    sc->option_data_len);
-					log_info("iface%d: %s: IA_PD: [%u]: %s",
-					    iface->if_index, __func__,
-					    status.status_code,
-					    status.status_msg);
-				}
+				configure_address(iface);
 			}
 		} else {
 			/* Four message handshake */
@@ -720,7 +674,7 @@ dh6client_parse(struct dh6client_iface *iface, struct imsg_dhcp6 *dhcp6)
 		    msg->msg_type);
 		break;
 	}
-	return (0);
+	return;
 }
 
 void
@@ -728,7 +682,7 @@ start_probe(struct dh6client_iface *iface)
 {
 	struct timeval	tv;
 
-	iface->state = IF_DELAY;
+	iface->state = IF_PROBE;
 	iface->probes = 0;
 
 	tv.tv_sec = 0;
@@ -738,4 +692,45 @@ start_probe(struct dh6client_iface *iface)
 	    iface->if_index, tv.tv_usec);
 
 	evtimer_add(&iface->timer, &tv);
+}
+
+void
+iface_timeout(int fd, short events, void *arg)
+{
+	struct dh6client_iface	*iface = (struct dh6client_iface *)arg;
+	struct timeval		 tv;
+
+	log_debug("%s[%d]: %s", __func__, iface->if_index,
+	    if_state_name[iface->state]);
+
+	switch (iface->state) {
+		case IF_IDLE:
+			iface->probes = 0;
+			tv.tv_sec = 0;
+			tv.tv_usec = 0;
+			iface->state = IF_PROBE;
+			evtimer_add(&iface->timer, &tv);
+			break;
+		case IF_PROBE:
+			iface->state = IF_PROBE;
+			if (iface->probes == 0) {
+				if (gettimeofday(&iface->start_time,
+				    NULL) == -1)
+					fatal("gettimeofday");
+			}
+			(void)send_solicit(iface);
+			if (++iface->probes >= MAX_DHCP6_SOLICITATIONS) {
+				log_info("%s: max solicitations.", __func__);
+				iface->state = IF_DEAD;
+				tv.tv_sec = 0;
+			} else
+				tv.tv_sec = DHCP6_SOLICITATION_INTERVAL;
+			tv.tv_usec = arc4random_uniform(1000000);
+			evtimer_add(&iface->timer, &tv);
+			break;
+		case IF_DEAD:
+		case IF_DOWN:
+		default:
+			break;
+	}
 }

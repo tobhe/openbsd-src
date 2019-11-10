@@ -587,6 +587,12 @@ handle_route_message(struct rt_msghdr *rtm)
 			}
 		}
 		break;
+	case RTM_NEWADDR:
+		ifm = (struct if_msghdr *)rtm;
+		if_name = if_indextoname(ifm->ifm_index, ifnamebuf);
+		log_debug("RTM_NEWADDR: %s[%u]", if_name, ifm->ifm_index);
+		update_iface(ifm->ifm_index, if_name);
+		break;
 	default:
 		log_debug("unexpected RTM: %d", rtm->rtm_type);
 		break;
