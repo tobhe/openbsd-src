@@ -5,6 +5,6 @@ NNAAMMEE
 
 DDEESSCCRRIIPPTTIIOONN
      initial text <alpha> inline <beta> <gamma> inline [delta] <epsilon>
-     inline <zeta> final text
+     inline <zeta> inline $eta$ inline <theta> final text
 
 OpenBSD                         January 8, 2020                        OpenBSD
