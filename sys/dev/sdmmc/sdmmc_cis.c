@@ -73,10 +73,6 @@ void
 sdmmc_read_cis_funce(struct sdmmc_function *sf, struct sdmmc_cis *cis,
 		     int reg, u_int8_t tpllen)
 {
-	const static int speed_exponent[8] = { 10, 100, 1000, 10000 };
-	const static int speed_mantissa[16] = { 0, 10, 12, 13, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 70, 80 };
-
-	int tran_speed;
 	struct sdmmc_function *sf0 = sf->sc->sc_fn0;
 	if (sdmmc_io_read_1(sf0, reg++) == 0) {
 		if (tpllen < 4) {
@@ -87,9 +83,6 @@ sdmmc_read_cis_funce(struct sdmmc_function *sf, struct sdmmc_cis *cis,
 
 		sf->csd.read_bl_len = sdmmc_io_read_1(sf0, reg++);
 		sf->csd.read_bl_len |= sdmmc_io_read_1(sf0, reg++) << 8;
-
-		tran_speed = sdmmc_io_read_1(sf0, reg++);
-		sf->csd.tran_speed = speed_exponent[tran_speed & 7] * speed_mantissa[tran_speed >> 3 & 15];
 	} else if (sf->number == 0) {
 		printf("%s: unexpected CISTPL_FUNCE found in common\n",
 		       DEVNAME(sf->sc));

@@ -37,7 +37,6 @@ struct sdmmc_csd {
 	int	sector_size;	/* sector size in bytes */
 	int	read_bl_len;	/* block length for reads */
 	int	ccc;		/* Card Command Class for SD */
-	int	tran_speed;	/* Transition speed, in kHZ */
 	/* ... */
 };
 
