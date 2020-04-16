@@ -466,6 +466,6 @@ device bcmdmac
 attach bcmdmac at fdt
 file	dev/fdt/bcm2835_dmac.c		bcmdmac
 
-device bmbox
-attach bmbox at fdt
-file	dev/fdt/bcm2835_mbox.c		bmbox
+device bcmmbox
+attach bcmmbox at fdt
+file	dev/fdt/bcm2835_mbox.c		bcmmbox

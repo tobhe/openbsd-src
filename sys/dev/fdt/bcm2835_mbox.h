@@ -1,10 +1,7 @@
-/*     $OpenBSD: bcm2835_mbox.h,v 1.0 2019/01/13 23:55:29 neil Exp $ */
-
-/* Code based on
- *	$NetBSD: bcm2835_mbox.h,v 1.5 2014/10/07 08:30:05 skrll Exp $
- */
+/*     $OpenBSD$ */
 
 /*
+ * Copyright (c) 2020 Tobias Heider <tobhe@openbsd.org>
  * Copyright (c) 2019 Neil Ashford <ashfordneil0@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -49,55 +46,55 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef BMBOX_H
-#define BMBOX_H
+#ifndef BCMMBOX_H
+#define BCMMBOX_H
 
-#define BMBOX_NUM_CHANNELS 16
-#define BMBOX_CHANNEL_MASK 0xf
+#define BCMMBOX_NUM_CHANNELS 16
+#define BCMMBOX_CHANNEL_MASK 0xf
 
 /* mailbox 0 (from VC) and mailbox 1 (to VC) */
-#define BMBOX_SIZE 0x80
+#define BCMMBOX_SIZE 0x80
 
-#define BMBOX_READ 0x00
-#define BMBOX_WRITE 0x00
-#define BMBOX_POLL 0x10   /* read without popping the fifo */
-#define BMBOX_ID 0x14     /* sender ID (bottom two bits) */
-#define BMBOX_STATUS 0x18 /* status */
-#define  BMBOX_STATUS_FULL 0x80000000
-#define  BMBOX_STATUS_EMPTY 0x40000000
-#define  BMBOX_STATUS_LEVEL 0x400000FF
-#define BMBOX_CFG 0x1C /* configuration */
-#define  BMBOX_CFG_DATA_IRQ_EN 0x00000001
-#define  BMBOX_CFG_SPACE_IRQ_EN 0x00000002
-#define  BMBOX_CFG_EMPTYOP_IRQ_EN 0x00000004
-#define  BMBOX_CFG_MAIL_CLEAR 0x00000008
-#define  BMBOX_CFG_DATA_PENDING 0x00000010
-#define  BMBOX_CFG_SPACE_PENDING 0x00000020
-#define  BMBOX_CFG_EMPTY_OP_PENDING 0x00000040
-#define  BMBOX_CFG_E_NO_OWN 0x00000100
-#define  BMBOX_CFG_E_OVERFLOW 0x00000200
-#define  BMBOX_CFG_E_UNDERFLOW 0x00000400
+#define BCMMBOX_READ 0x00
+#define BCMMBOX_WRITE 0x00
+#define BCMMBOX_POLL 0x10   /* read without popping the fifo */
+#define BCMMBOX_ID 0x14     /* sender ID (bottom two bits) */
+#define BCMMBOX_STATUS 0x18 /* status */
+#define  BCMMBOX_STATUS_FULL 0x80000000
+#define  BCMMBOX_STATUS_EMPTY 0x40000000
+#define  BCMMBOX_STATUS_LEVEL 0x400000FF
+#define BCMMBOX_CFG 0x1C /* configuration */
+#define  BCMMBOX_CFG_DATA_IRQ_EN 0x00000001
+#define  BCMMBOX_CFG_SPACE_IRQ_EN 0x00000002
+#define  BCMMBOX_CFG_EMPTYOP_IRQ_EN 0x00000004
+#define  BCMMBOX_CFG_MAIL_CLEAR 0x00000008
+#define  BCMMBOX_CFG_DATA_PENDING 0x00000010
+#define  BCMMBOX_CFG_SPACE_PENDING 0x00000020
+#define  BCMMBOX_CFG_EMPTY_OP_PENDING 0x00000040
+#define  BCMMBOX_CFG_E_NO_OWN 0x00000100
+#define  BCMMBOX_CFG_E_OVERFLOW 0x00000200
+#define  BCMMBOX_CFG_E_UNDERFLOW 0x00000400
 
-#define BMBOX0_BASE 0x00
-#define BMBOX1_BASE 0x20
+#define BCMMBOX0_BASE 0x00
+#define BCMMBOX1_BASE 0x20
 
-#define BMBOX0_READ (BMBOX0_BASE + BMBOX_READ)
-#define BMBOX0_WRITE (BMBOX0_BASE + BMBOX_WRITE)
-#define BMBOX0_POLL (BMBOX0_BASE + BMBOX_POLL)
-#define BMBOX0_ID (BMBOX0_BASE + BMBOX_ID)
-#define BMBOX0_STATUS (BMBOX0_BASE + BMBOX_STATUS)
-#define BMBOX0_CFG (BMBOX0_BASE + BMBOX_READ)
+#define BCMMBOX0_READ (BCMMBOX0_BASE + BCMMBOX_READ)
+#define BCMMBOX0_WRITE (BCMMBOX0_BASE + BCMMBOX_WRITE)
+#define BCMMBOX0_POLL (BCMMBOX0_BASE + BCMMBOX_POLL)
+#define BCMMBOX0_ID (BCMMBOX0_BASE + BCMMBOX_ID)
+#define BCMMBOX0_STATUS (BCMMBOX0_BASE + BCMMBOX_STATUS)
+#define BCMMBOX0_CFG (BCMMBOX0_BASE + BCMMBOX_READ)
 
-#define BMBOX1_READ (BMBOX1_BASE + BMBOX_READ)
-#define BMBOX1_WRITE (BMBOX1_BASE + BMBOX_WRITE)
-#define BMBOX1_POLL (BMBOX1_BASE + BMBOX_POLL)
-#define BMBOX1_ID (BMBOX1_BASE + BMBOX_ID)
-#define BMBOX1_STATUS (BMBOX1_BASE + BMBOX_STATUS)
-#define BMBOX1_CFG (BMBOX1_BASE + BMBOX_READ)
+#define BCMMBOX1_READ (BCMMBOX1_BASE + BCMMBOX_READ)
+#define BCMMBOX1_WRITE (BCMMBOX1_BASE + BCMMBOX_WRITE)
+#define BCMMBOX1_POLL (BCMMBOX1_BASE + BCMMBOX_POLL)
+#define BCMMBOX1_ID (BCMMBOX1_BASE + BCMMBOX_ID)
+#define BCMMBOX1_STATUS (BCMMBOX1_BASE + BCMMBOX_STATUS)
+#define BCMMBOX1_CFG (BCMMBOX1_BASE + BCMMBOX_READ)
 
-void bmbox_read(u_int8_t chan, u_int32_t *data);
-void bmbox_write(u_int8_t chan, u_int32_t data);
+void bcmmbox_read(u_int8_t chan, u_int32_t *data);
+void bcmmbox_write(u_int8_t chan, u_int32_t data);
 
-int bmbox_post(u_int8_t, void *, size_t, u_int32_t *);
+int bcmmbox_post(u_int8_t, void *, size_t, u_int32_t *);
 
 #endif /* BCM2835_DMAC_H */

@@ -73,7 +73,7 @@ struct bcmdmac_softc {
 	u_int32_t sc_channelmask;
 };
 
-static volatile void *attached_sc = NULL;
+static struct bcmdmac_softc *bcmdmac_sc = NULL;
 
 struct bcmdmac_channel {
 	struct bcmdmac_softc *ch_sc;
@@ -143,10 +143,11 @@ bcmdmac_attach(struct device *parent, struct device *self, void *aux)
 	bus_addr_t addr;
 	bus_size_t size;
 
-	if (atomic_cas_ptr(&attached_sc, NULL, sc)) {
-		printf(": a similar device has already attached\n");
+	if (bcmdmac_sc) {
+		printf(": already attached\n");
 		return;
 	}
+	bcmdmac_sc = sc;
 
 	sc->sc_iot = faa->fa_iot;
 	sc->sc_fa_node = faa->fa_node;
@@ -221,21 +222,15 @@ struct bcmdmac_channel *
 bcmdmac_alloc(enum bcmdmac_type type, int ipl,
 	    void (*cb)(u_int32_t, u_int32_t, void *), void *cbarg)
 {
-	struct bcmdmac_softc *sc;
+	struct bcmdmac_softc *sc = bcmdmac_sc;
 	struct bcmdmac_channel *ch = NULL;
 	int index;
-
-	// get the current ptr - this is in a loop in case someone modifies it
-	// while we are going
-	do {
-		sc = (struct bcmdmac_softc *)attached_sc;
-	} while (sc != atomic_cas_ptr(&attached_sc, sc, sc));
 
 	if (sc == NULL)
 		return NULL;
 
 	mtx_enter(&sc->sc_lock);
-	for (index = 0; index < sc->sc_nchannels; ++index) {
+	for (index = 0; index < sc->sc_nchannels; index++) {
 		if (!ISSET(sc->sc_channelmask, (1 << index)))
 			continue;
 		if (bcmdmac_channel_type(sc->sc_channels[index]) != type)

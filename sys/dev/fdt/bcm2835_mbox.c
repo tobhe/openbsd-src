@@ -1,11 +1,7 @@
-/*     $OpenBSD: mmc.c,v 1.0 2019/01/13 23:55:29 neil Exp $ */
-
-/* Code based on
- *	$NetBSD: bcm2835_mbox_subr.c,v 1.5 2017/12/10 21:38:26 skrll Exp $
- *	$NetBSD: bcm2835_mbox.c,v 1.13 2018/08/19 09:18:48 rin Exp $
- */
+/*     $OpenBSD$ */
 
 /*
+ * Copyright (c) 2020 Tobias Heider <tobhe@openbsd.org>
  * Copyright (c) 2019 Neil Ashford <ashfordneil0@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -67,9 +63,9 @@
 
 #define DEVNAME(sc) ((sc)->sc_dev.dv_xname)
 
-struct cfdriver bmbox_cd = { NULL, "bmbox", DV_DULL };
+struct cfdriver bcmmbox_cd = { NULL, "bcmmbox", DV_DULL };
 
-struct bmbox_softc {
+struct bcmmbox_softc {
 	struct device sc_dev;
 	bus_space_tag_t sc_iot;
 	bus_space_handle_t sc_ioh;
@@ -81,29 +77,29 @@ struct bmbox_softc {
 
 	struct mutex sc_lock;
 	struct mutex sc_intr_lock;
-	int sc_chan[BMBOX_NUM_CHANNELS];
-	u_int32_t sc_mbox[BMBOX_NUM_CHANNELS];
+	int sc_chan[BCMMBOX_NUM_CHANNELS];
+	u_int32_t sc_mbox[BCMMBOX_NUM_CHANNELS];
 };
 
-static void * volatile attached_sc = NULL;
+static struct bcmmbox_softc *bcmmbox_sc;
 
-int bmbox_match(struct device *, void *, void *);
-void bmbox_attach(struct device *, struct device *, void *);
+int bcmmbox_match(struct device *, void *, void *);
+void bcmmbox_attach(struct device *, struct device *, void *);
 
-struct cfattach bmbox_ca = {
-	sizeof(struct bmbox_softc),
-	bmbox_match,
-	bmbox_attach,
+struct cfattach bcmmbox_ca = {
+	sizeof(struct bcmmbox_softc),
+	bcmmbox_match,
+	bcmmbox_attach,
 };
 
-u_int32_t bmbox_reg_read(struct bmbox_softc *, int);
-void bmbox_reg_write(struct bmbox_softc *, int, u_int32_t);
-void bmbox_reg_flush(struct bmbox_softc *, int);
-int bmbox_intr(void *);
-int bmbox_intr_helper(struct bmbox_softc *, int);
+u_int32_t bcmmbox_reg_read(struct bcmmbox_softc *, int);
+void bcmmbox_reg_write(struct bcmmbox_softc *, int, u_int32_t);
+void bcmmbox_reg_flush(struct bcmmbox_softc *, int);
+int bcmmbox_intr(void *);
+int bcmmbox_intr_helper(struct bcmmbox_softc *, int);
 
 int
-bmbox_match(struct device *parent, void *match, void *aux)
+bcmmbox_match(struct device *parent, void *match, void *aux)
 {
 	struct fdt_attach_args *faa = aux;
 
@@ -111,17 +107,18 @@ bmbox_match(struct device *parent, void *match, void *aux)
 }
 
 void
-bmbox_attach(struct device *parent, struct device *self, void *aux)
+bcmmbox_attach(struct device *parent, struct device *self, void *aux)
 {
-	struct bmbox_softc *sc = (struct bmbox_softc *)self;
+	struct bcmmbox_softc *sc = (struct bcmmbox_softc *)self;
 	struct fdt_attach_args *faa = aux;
 	bus_addr_t addr;
 	bus_size_t size;
 
-	if (atomic_cas_ptr(&attached_sc, NULL, sc)) {
+	if (bcmmbox_sc) {
 		printf(": a similar device as already attached\n");
 		return;
 	}
+	bcmmbox_sc = sc;
 
 	mtx_init(&sc->sc_lock, IPL_NONE);
 	mtx_init(&sc->sc_intr_lock, IPL_VM);
@@ -147,7 +144,7 @@ bmbox_attach(struct device *parent, struct device *self, void *aux)
 		goto clean_bus_space_map;
 	}
 
-	sc->sc_ih = fdt_intr_establish(faa->fa_node, IPL_VM, bmbox_intr, sc,
+	sc->sc_ih = fdt_intr_establish(faa->fa_node, IPL_VM, bcmmbox_intr, sc,
 	    DEVNAME(sc));
 	if (sc->sc_ih == NULL) {
 		printf(": failed to establish interrupts\n");
@@ -155,11 +152,12 @@ bmbox_attach(struct device *parent, struct device *self, void *aux)
 	}
 
 	/* enable interrupt in hardware */
-	bmbox_reg_write(sc, BMBOX_CFG, BMBOX_CFG_DATA_IRQ_EN);
+	bcmmbox_reg_write(sc, BCMMBOX_CFG, BCMMBOX_CFG_DATA_IRQ_EN);
 
 	printf("\n");
 
-	bmbox_write(BCMMBOX_CHANPM, (
+#if 0
+	bcmmbox_write(BCMMBOX_CHANPM, (
             (1 << VCPROP_POWER_SDCARD) |
             (1 << VCPROP_POWER_UART0) |
             (1 << VCPROP_POWER_USB) |
@@ -167,6 +165,7 @@ bmbox_attach(struct device *parent, struct device *self, void *aux)
         /*  (1 << VCPROP_POWER_I2C2) | */
             (1 << VCPROP_POWER_SPI) |
             0) << 4);
+#endif
 
 	return;
 
@@ -180,57 +179,57 @@ clean_bus_space_map:
 }
 
 u_int32_t
-bmbox_reg_read(struct bmbox_softc *sc, int addr)
+bcmmbox_reg_read(struct bcmmbox_softc *sc, int addr)
 {
 	return bus_space_read_4(sc->sc_iot, sc->sc_ioh, addr);
 }
 
 void
-bmbox_reg_write(struct bmbox_softc *sc, int addr, u_int32_t val)
+bcmmbox_reg_write(struct bcmmbox_softc *sc, int addr, u_int32_t val)
 {
 	bus_space_write_4(sc->sc_iot, sc->sc_ioh, addr, val);
 }
 
 void
-bmbox_reg_flush(struct bmbox_softc *sc, int flags)
+bcmmbox_reg_flush(struct bcmmbox_softc *sc, int flags)
 {
-	bus_space_barrier(sc->sc_iot, sc->sc_ioh, 0, BMBOX_SIZE, flags);
+	bus_space_barrier(sc->sc_iot, sc->sc_ioh, 0, BCMMBOX_SIZE, flags);
 }
 
 int
-bmbox_intr(void *cookie)
+bcmmbox_intr(void *cookie)
 {
-	struct bmbox_softc *sc = cookie;
+	struct bcmmbox_softc *sc = cookie;
 	int ret;
 
 	mtx_enter(&sc->sc_intr_lock);
-	ret = bmbox_intr_helper(sc, 1);
+	ret = bcmmbox_intr_helper(sc, 1);
 	mtx_leave(&sc->sc_intr_lock);
 
 	return ret;
 }
 
 int
-bmbox_intr_helper(struct bmbox_softc *sc, int broadcast)
+bcmmbox_intr_helper(struct bcmmbox_softc *sc, int broadcast)
 {
 	u_int32_t mbox, chan, data;
 	int ret = 0;
 
-	bmbox_reg_flush(sc, BUS_SPACE_BARRIER_READ);
+	bcmmbox_reg_flush(sc, BUS_SPACE_BARRIER_READ);
 
-	while (!ISSET(bmbox_reg_read(sc, BMBOX_STATUS), BMBOX_STATUS_EMPTY)) {
-		mbox = bmbox_reg_read(sc, BMBOX0_READ);
+	while (!ISSET(bcmmbox_reg_read(sc, BCMMBOX_STATUS), BCMMBOX_STATUS_EMPTY)) {
+		mbox = bcmmbox_reg_read(sc, BCMMBOX0_READ);
 
-		chan = mbox & BMBOX_CHANNEL_MASK;
-		data = mbox & ~BMBOX_CHANNEL_MASK;
+		chan = mbox & BCMMBOX_CHANNEL_MASK;
+		data = mbox & ~BCMMBOX_CHANNEL_MASK;
 		ret = 1;
 
-		if ((sc->sc_mbox[chan] & BMBOX_CHANNEL_MASK) != 0) {
+		if ((sc->sc_mbox[chan] & BCMMBOX_CHANNEL_MASK) != 0) {
 			printf("%s: chan %d overflow\n", DEVNAME(sc), chan);
 			continue;
 		}
 
-		sc->sc_mbox[chan] = data | BMBOX_CHANNEL_MASK;
+		sc->sc_mbox[chan] = data | BCMMBOX_CHANNEL_MASK;
 
 		if (broadcast)
 			wakeup(&sc->sc_chan[chan]);
@@ -240,28 +239,24 @@ bmbox_intr_helper(struct bmbox_softc *sc, int broadcast)
 }
 
 void
-bmbox_read(u_int8_t chan, u_int32_t *data)
+bcmmbox_read(u_int8_t chan, u_int32_t *data)
 {
-	struct bmbox_softc *sc;
+	struct bcmmbox_softc *sc = bcmmbox_sc;
 	u_int32_t mbox, rchan, rdata, status;
 
-	do {
-		sc = (struct bmbox_softc *)attached_sc;
-	} while (sc != atomic_cas_ptr(&attached_sc, sc, sc));
-
 	KASSERT(sc != NULL);
-	KASSERT(chan == (chan & BMBOX_CHANNEL_MASK));
+	KASSERT(chan == (chan & BCMMBOX_CHANNEL_MASK));
 
 	while (1) {
-		bmbox_reg_flush(sc, BUS_SPACE_BARRIER_READ);
-		status = bmbox_reg_read(sc, BMBOX0_STATUS);
-		if (ISSET(status, BMBOX_STATUS_EMPTY))
+		bcmmbox_reg_flush(sc, BUS_SPACE_BARRIER_READ);
+		status = bcmmbox_reg_read(sc, BCMMBOX0_STATUS);
+		if (ISSET(status, BCMMBOX_STATUS_EMPTY))
 			continue;
 
-		mbox = bmbox_reg_read(sc, BMBOX0_READ);
+		mbox = bcmmbox_reg_read(sc, BCMMBOX0_READ);
 
-		rchan = mbox & BMBOX_CHANNEL_MASK;
-		rdata = mbox & ~BMBOX_CHANNEL_MASK;
+		rchan = mbox & BCMMBOX_CHANNEL_MASK;
+		rdata = mbox & ~BCMMBOX_CHANNEL_MASK;
 
 		if (rchan == chan) {
 			*data = rdata;
@@ -270,58 +265,55 @@ bmbox_read(u_int8_t chan, u_int32_t *data)
 	}
 }
 
-int
-bmbox_post(u_int8_t chan, void *buf, size_t len, u_int32_t *res)
+void
+bcmmbox_write(uint8_t chan, uint32_t data)
 {
-	struct bmbox_softc *sc = attached_sc;
-	bus_dmamap_t dmap;
+	struct bcmmbox_softc *sc = bcmmbox_sc;
+	u_int32_t rdata;
+
+	KASSERT(sc != NULL);
+	KASSERT(chan == (chan & BCMMBOX_CHANNEL_MASK));
+	KASSERT(data == (data & ~BCMMBOX_CHANNEL_MASK));
+
+	while (1) {
+		bcmmbox_reg_flush(sc, BUS_SPACE_BARRIER_READ);
+		rdata = bcmmbox_reg_read(sc, BCMMBOX0_STATUS);
+		if (!ISSET(rdata, BCMMBOX_STATUS_FULL))
+			break;
+	}
+
+	bcmmbox_reg_write(sc, BCMMBOX1_WRITE, chan | data);
+	bcmmbox_reg_flush(sc, BUS_SPACE_BARRIER_WRITE);
+}
+
+int
+bcmmbox_post(u_int8_t chan, void *buf, size_t len, u_int32_t *res)
+{
+	struct bcmmbox_softc *sc = bcmmbox_sc;
+	bus_dmamap_t map;
 	int error;
 
+	KASSERT(sc != NULL);
 	if (sc == NULL)
 		return (ENXIO);
 
-	dmap = sc->sc_dmamap;
+	map = sc->sc_dmamap;
 
-	error = bus_dmamap_load(sc->sc_dmat, dmap, buf, len, NULL,
+	error = bus_dmamap_load(sc->sc_dmat, map, buf, len, NULL,
 	    BUS_DMA_NOWAIT | BUS_DMA_READ | BUS_DMA_WRITE);
 	if (error != 0)
 		return (error);
 
-	bus_dmamap_sync(sc->sc_dmat, dmap, 0, len,
+	bus_dmamap_sync(sc->sc_dmat, map, 0, len,
 	    BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
 
-	bmbox_write(chan, dmap->dm_segs[0].ds_addr);
-	bmbox_read(chan, res);
+	bcmmbox_write(chan, map->dm_segs[0].ds_addr);
+	bcmmbox_read(chan, res);
 
-	bus_dmamap_sync(sc->sc_dmat, dmap, 0, len,
+	bus_dmamap_sync(sc->sc_dmat, map, 0, len,
 	    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
 
-	bus_dmamap_unload(sc->sc_dmat, dmap);
+	bus_dmamap_unload(sc->sc_dmat, map);
 
 	return (0);
-}
-
-void
-bmbox_write(u_int8_t chan, u_int32_t data)
-{
-	struct bmbox_softc *sc;
-	u_int32_t rdata;
-
-	do {
-		sc = (struct bmbox_softc *)attached_sc;
-	} while (sc != atomic_cas_ptr(&attached_sc, sc, sc));
-
-	KASSERT(sc != NULL);
-	KASSERT(chan == (chan & BMBOX_CHANNEL_MASK));
-	KASSERT(data == (data & ~BMBOX_CHANNEL_MASK));
-
-	while (1) {
-		bmbox_reg_flush(sc, BUS_SPACE_BARRIER_READ);
-		rdata = bmbox_reg_read(sc, BMBOX0_STATUS);
-		if (!ISSET(rdata, BMBOX_STATUS_FULL))
-			break;
-	}
-
-	bmbox_reg_write(sc, BMBOX1_WRITE, chan | data);
-	bmbox_reg_flush(sc, BUS_SPACE_BARRIER_WRITE);
 }

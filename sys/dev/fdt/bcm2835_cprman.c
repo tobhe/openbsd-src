@@ -204,7 +204,7 @@ cprman_get_frequency(void *cookie, u_int32_t *cells)
 		return 0;
 	}
 
-	bmbox_post(BCMMBOX_CHANARM2VC, &req, sizeof(req), &result);
+	bcmmbox_post(BCMMBOX_CHANARM2VC, &req, sizeof(req), &result);
 
 	if (vcprop_tag_success_p(&req.vbt_clkrate.tag))
 		return req.vbt_clkrate.rate;
