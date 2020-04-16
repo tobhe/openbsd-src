@@ -151,7 +151,7 @@ bsdhost*	at fdt?
 sdmmc*		at bsdhost?
 cprman*		at fdt? early 1
 bmbox*		at fdt? early 1
-bdmac*		at fdt? early 1
+bcmdmac*	at fdt? early 1
 
 # Amlogic SoCs
 amlclock*	at fdt? early 1

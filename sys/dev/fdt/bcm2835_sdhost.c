@@ -129,8 +129,8 @@ struct bsdhost_softc {
 	bus_dma_tag_t sc_dmat;
 	bus_dmamap_t sc_dmamap;
 	bus_dma_segment_t sc_segs[1];
-	struct bdmac_conblk *sc_cblk;
-	struct bdmac_channel *sc_dmac;
+	struct bcmdmac_conblk *sc_cblk;
+	struct bcmdmac_channel *sc_dmac;
 
 	/* synchronisation control */
 	struct mutex sc_intr_lock;
@@ -242,7 +242,7 @@ bsdhost_attach(struct device *parent, struct device *self, void *aux)
 
 	/* load DMA */
 	sc->sc_dmac =
-	    bdmac_alloc(BDMAC_TYPE_NORMAL, IPL_SDMMC, bsdhost_dma_done, sc);
+	    bcmdmac_alloc(BCMDMAC_TYPE_NORMAL, IPL_SDMMC, bsdhost_dma_done, sc);
 	if (sc->sc_dmac == NULL) {
 		printf(": can't open dmac\n");
 		goto clean_clocks;
@@ -300,7 +300,7 @@ clean_dmamap_unmap:
 clean_dmamap_free:
 	bus_dmamem_free(sc->sc_dmat, sc->sc_segs, 1);
 clean_dmac_channel:
-	bdmac_free(sc->sc_dmac);
+	bcmdmac_free(sc->sc_dmac);
 clean_clocks:
 	clock_disable_all(faa->fa_node);
 	bus_space_unmap(sc->sc_iot, sc->sc_ioh, sc->sc_size);
@@ -578,7 +578,7 @@ bsdhost_dma_wait(struct bsdhost_softc *sc, struct sdmmc_command *cmd)
 			       "pause", 50);
 		if (error == EWOULDBLOCK) {
 			printf("%s: transfer timeout!\n", DEVNAME(sc));
-			bdmac_halt(sc->sc_dmac);
+			bcmdmac_halt(sc->sc_dmac);
 			error = ETIMEDOUT;
 			goto error;
 		}
@@ -646,7 +646,7 @@ bsdhost_dma_transfer(struct bsdhost_softc *sc, struct sdmmc_command *cmd)
 		} else {
 			sc->sc_cblk[seg].cb_nextconbk =
 			    sc->sc_dmamap->dm_segs[0].ds_addr +
-			    sizeof(struct bdmac_conblk) * (seg + 1);
+			    sizeof(struct bcmdmac_conblk) * (seg + 1);
 		}
 		sc->sc_cblk[seg].cb_padding[0] = 0;
 		sc->sc_cblk[seg].cb_padding[1] = 0;
@@ -660,8 +660,8 @@ bsdhost_dma_transfer(struct bsdhost_softc *sc, struct sdmmc_command *cmd)
 	sc->sc_dma_status = 0;
 	sc->sc_dma_error = 0;
 
-	bdmac_set_conblk_addr(sc->sc_dmac, sc->sc_dmamap->dm_segs[0].ds_addr);
-	error = bdmac_transfer(sc->sc_dmac);
+	bcmdmac_set_conblk_addr(sc->sc_dmac, sc->sc_dmamap->dm_segs[0].ds_addr);
+	error = bcmdmac_transfer(sc->sc_dmac);
 
 	if (error)
 		return error;

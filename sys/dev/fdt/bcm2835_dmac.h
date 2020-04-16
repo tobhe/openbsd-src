@@ -1,10 +1,7 @@
-/*     $OpenBSD: mmc.c,v 1.0 2019/01/13 23:55:29 neil Exp $ */
-
-/* Code based on
- * $NetBSD: bcm2835_dmac.h,v 1.4 2015/08/09 13:06:44 mlelstv Exp $
- */
+/*     $OpenBSD$ */
 
 /*
+ * Copyright (c) 2020 Tobias Heider <tobhe@openbsd.org>
  * Copyright (c) 2019 Neil Ashford <ashfordneil0@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -82,7 +79,7 @@
 #define  DMAC_DEBUG_FIFO_ERROR	(1<<1)
 #define  DMAC_DEBUG_READ_LAST_NOT_SET_ERROR (1<<0)
 
-struct bdmac_conblk {
+struct bcmdmac_conblk {
 	uint32_t cb_ti;
 #define DMAC_TI_NO_WIDE_BURSTS (1 << 26)
 #define DMAC_TI_WAITS (((1 << 26) - 1) ^ (1 << 21))
@@ -115,15 +112,15 @@ struct bdmac_conblk {
 #define DMAC_INT_STATUS 0xfe0
 #define DMAC_ENABLE 0xff0
 
-enum bdmac_type { BDMAC_TYPE_NORMAL, BDMAC_TYPE_LITE };
+enum bcmdmac_type { BCMDMAC_TYPE_NORMAL, BCMDMAC_TYPE_LITE };
 
-struct bdmac_channel;
+struct bcmdmac_channel;
 
-struct bdmac_channel *bdmac_alloc(enum bdmac_type, int,
+struct bcmdmac_channel *bcmdmac_alloc(enum bcmdmac_type, int,
 				  void (*)(uint32_t, uint32_t, void *), void *);
-void bdmac_free(struct bdmac_channel *);
-void bdmac_set_conblk_addr(struct bdmac_channel *, bus_addr_t);
-int bdmac_transfer(struct bdmac_channel *);
-void bdmac_halt(struct bdmac_channel *);
+void bcmdmac_free(struct bcmdmac_channel *);
+void bcmdmac_set_conblk_addr(struct bcmdmac_channel *, bus_addr_t);
+int bcmdmac_transfer(struct bcmdmac_channel *);
+void bcmdmac_halt(struct bcmdmac_channel *);
 
 #endif /* BCM2835_DMAC_H */
