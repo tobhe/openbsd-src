@@ -156,25 +156,18 @@ bcmmbox_attach(struct device *parent, struct device *self, void *aux)
 
 	printf("\n");
 
-#if 0
 	bcmmbox_write(BCMMBOX_CHANPM, (
             (1 << VCPROP_POWER_SDCARD) |
             (1 << VCPROP_POWER_UART0) |
             (1 << VCPROP_POWER_USB) |
-            (1 << VCPROP_POWER_I2C0) | (1 << VCPROP_POWER_I2C1) |
-        /*  (1 << VCPROP_POWER_I2C2) | */
+            (1 << VCPROP_POWER_I2C0) |
+	    (1 << VCPROP_POWER_I2C1) |
             (1 << VCPROP_POWER_SPI) |
             0) << 4);
-#endif
 
 	return;
 
-	/*
-cancel_interrupts:
-	fdt_intr_disestablish(sc->sc_ih);
-	*/
-
-clean_bus_space_map:
+ clean_bus_space_map:
 	bus_space_unmap(sc->sc_iot, sc->sc_ioh, size);
 }
 
