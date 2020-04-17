@@ -1,6 +1,7 @@
 /*     $OpenBSD$ */
 
 /*
+ * Copyright (c) 2020 Tobias Heider <tobhe@openbsd.org>
  * Copyright (c) 2019 Neil Ashford <ashfordneil0@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
