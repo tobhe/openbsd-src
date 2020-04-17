@@ -92,9 +92,9 @@
 #define BCMMBOX1_STATUS (BCMMBOX1_BASE + BCMMBOX_STATUS)
 #define BCMMBOX1_CFG (BCMMBOX1_BASE + BCMMBOX_READ)
 
-void bcmmbox_read(u_int8_t chan, u_int32_t *data);
-void bcmmbox_write(u_int8_t chan, u_int32_t data);
+void bcmmbox_read(uint8_t chan, uint32_t *data);
+void bcmmbox_write(uint8_t chan, uint32_t data);
 
-int bcmmbox_post(u_int8_t, void *, size_t, u_int32_t *);
+int bcmmbox_post(uint8_t, void *, size_t, uint32_t *);
 
 #endif /* BCM2835_MBOX_H */

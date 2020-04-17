@@ -131,19 +131,19 @@ struct bcmsdhost_softc {
 
 	/* synchronisation control */
 	struct mutex sc_intr_lock;
-	u_int32_t sc_intr_hsts;
-	u_int32_t sc_intr_cv;
-	u_int32_t sc_dma_cv;
+	uint32_t sc_intr_hsts;
+	uint32_t sc_intr_cv;
+	uint32_t sc_dma_cv;
 
 	/* data transfer stats */
-	u_int sc_rate;
+	unsigned int sc_rate;
 	uint32_t sc_div; /* XXX */
 
 	int sc_mmc_width;
 	int sc_mmc_presnt;
 
-	u_int32_t sc_dma_status;
-	u_int32_t sc_dma_error;
+	uint32_t sc_dma_status;
+	uint32_t sc_dma_error;
 
 	/* attached child driver */
 	struct task sc_attach;
@@ -165,10 +165,10 @@ void bcmsdhost_attach_sdmmc(void *);
 
 /* sdmmc driver functions */
 int bcmsdhost_host_reset(sdmmc_chipset_handle_t);
-u_int32_t bcmsdhost_host_ocr(sdmmc_chipset_handle_t);
+uint32_t bcmsdhost_host_ocr(sdmmc_chipset_handle_t);
 int bcmsdhost_host_maxblklen(sdmmc_chipset_handle_t);
 int bcmsdhost_card_detect(sdmmc_chipset_handle_t);
-int bcmsdhost_bus_power(sdmmc_chipset_handle_t, u_int32_t);
+int bcmsdhost_bus_power(sdmmc_chipset_handle_t, uint32_t);
 int bcmsdhost_bus_clock(sdmmc_chipset_handle_t, int, int);
 int bcmsdhost_bus_width(sdmmc_chipset_handle_t, int);
 void bcmsdhost_exec_command(sdmmc_chipset_handle_t, struct sdmmc_command *);
@@ -188,9 +188,9 @@ struct sdmmc_chip_functions bcmsdhost_chip_functions = {
 int bcmsdhost_wait_idle(struct bcmsdhost_softc *sc, int timeout);
 int bcmsdhost_dma_wait(struct bcmsdhost_softc *, struct sdmmc_command *);
 int bcmsdhost_dma_transfer(struct bcmsdhost_softc *, struct sdmmc_command *);
-void bcmsdhost_dma_done(u_int32_t, u_int32_t, void *);
-void bcmsdhost_write(struct bcmsdhost_softc *, bus_size_t, u_int32_t);
-u_int32_t bcmsdhost_read(struct bcmsdhost_softc *, bus_size_t);
+void bcmsdhost_dma_done(uint32_t, uint32_t, void *);
+void bcmsdhost_write(struct bcmsdhost_softc *, bus_size_t, uint32_t);
+uint32_t bcmsdhost_read(struct bcmsdhost_softc *, bus_size_t);
 int bcmsdhost_intr(void *);
 
 struct cfdriver bcmsdhost_cd = { NULL, "bcmsdhost", DV_DISK };
@@ -341,7 +341,7 @@ int
 bcmsdhost_host_reset(sdmmc_chipset_handle_t sch)
 {
 	struct bcmsdhost_softc *sc = sch;
-	u_int32_t edm;
+	uint32_t edm;
 
 	bcmsdhost_write(sc, SDVDD, 0);
 	bcmsdhost_write(sc, SDCMD, 0);
@@ -369,7 +369,7 @@ bcmsdhost_host_reset(sdmmc_chipset_handle_t sch)
 	return 0;
 }
 
-u_int32_t
+uint32_t
 bcmsdhost_host_ocr(sdmmc_chipset_handle_t sch)
 {
 	return MMC_OCR_3_2V_3_3V | MMC_OCR_3_3V_3_4V | MMC_OCR_HCS;
@@ -388,7 +388,7 @@ bcmsdhost_card_detect(sdmmc_chipset_handle_t sch)
 }
 
 int
-bcmsdhost_bus_power(sdmmc_chipset_handle_t sch, u_int32_t ocr)
+bcmsdhost_bus_power(sdmmc_chipset_handle_t sch, uint32_t ocr)
 {
 	return 0;
 }
@@ -397,7 +397,7 @@ int
 bcmsdhost_bus_clock(sdmmc_chipset_handle_t sch, int freq, int ddr)
 {
 	struct bcmsdhost_softc *sc = sch;
-	u_int target_rate = freq * 1000;
+	unsigned int target_rate = freq * 1000;
 	int div;
 
 	if (freq == 0)
@@ -423,7 +423,7 @@ int
 bcmsdhost_bus_width(sdmmc_chipset_handle_t sch, int width)
 {
 	struct bcmsdhost_softc *sc = sch;
-	u_int32_t hcfg;
+	uint32_t hcfg;
 
 	hcfg = bcmsdhost_read(sc, SDHCFG);
 	if (width == 4)
@@ -441,8 +441,8 @@ bcmsdhost_exec_command(sdmmc_chipset_handle_t sch, struct sdmmc_command *cmd)
 {
 	struct bcmsdhost_softc *sc = sch;
 	uint32_t cmdval, hcfg;
-	u_int nblks;
-	u_int line = 0;
+	unsigned int nblks;
+	unsigned int line = 0;
 
 #if 0
 	printf("%s: %s op %u data %p len %u dmap %p\n", DEVNAME(sc), __func__,
@@ -552,7 +552,7 @@ bcmsdhost_wait_idle(struct bcmsdhost_softc *sc, int timeout)
 	retry = timeout * 1000;
 
 	while (--retry > 0) {
-		const u_int32_t cmd = bcmsdhost_read(sc, SDCMD);
+		const uint32_t cmd = bcmsdhost_read(sc, SDCMD);
 		if (!ISSET(cmd, SDCMD_NEW))
 			return 0;
 		delay(1);
@@ -663,7 +663,7 @@ bcmsdhost_dma_transfer(struct bcmsdhost_softc *sc, struct sdmmc_command *cmd)
 }
 
 void
-bcmsdhost_dma_done(u_int32_t status, u_int32_t error, void *arg)
+bcmsdhost_dma_done(uint32_t status, uint32_t error, void *arg)
 {
 	struct bcmsdhost_softc *sc = arg;
 
@@ -681,12 +681,12 @@ bcmsdhost_dma_done(u_int32_t status, u_int32_t error, void *arg)
 }
 
 void
-bcmsdhost_write(struct bcmsdhost_softc *sc, bus_size_t offset, u_int32_t value)
+bcmsdhost_write(struct bcmsdhost_softc *sc, bus_size_t offset, uint32_t value)
 {
 	bus_space_write_4(sc->sc_iot, sc->sc_ioh, offset, value);
 }
 
-u_int32_t
+uint32_t
 bcmsdhost_read(struct bcmsdhost_softc *sc, bus_size_t offset)
 {
 	return bus_space_read_4(sc->sc_iot, sc->sc_ioh, offset);
@@ -698,7 +698,7 @@ bcmsdhost_intr(void *priv)
 	struct bcmsdhost_softc *sc = priv;
 
 	mtx_enter(&sc->sc_intr_lock);
-	const u_int32_t hsts = bcmsdhost_read(sc, SDHSTS);
+	const uint32_t hsts = bcmsdhost_read(sc, SDHSTS);
 
 	if (hsts) {
 		bcmsdhost_write(sc, SDHSTS, hsts);

@@ -70,7 +70,7 @@ struct bcmdmac_softc {
 	struct mutex sc_lock;
 	struct bcmdmac_channel *sc_channels;
 	int sc_nchannels;
-	u_int32_t sc_channelmask;
+	uint32_t sc_channelmask;
 };
 
 static struct bcmdmac_softc *bcmdmac_sc = NULL;
@@ -78,10 +78,10 @@ static struct bcmdmac_softc *bcmdmac_sc = NULL;
 struct bcmdmac_channel {
 	struct bcmdmac_softc *ch_sc;
 	void *ch_ih;
-	u_int8_t ch_index;
-	void (*ch_callback)(u_int32_t, u_int32_t, void *);
+	uint8_t ch_index;
+	void (*ch_callback)(uint32_t, uint32_t, void *);
 	void *ch_callbackarg;
-	u_int32_t ch_debug;
+	uint32_t ch_debug;
 };
 
 int bcmdmac_match(struct device *, void *, void *);
@@ -112,12 +112,12 @@ bcmdmac_channel_used(struct bcmdmac_channel ch)
 }
 
 void
-bcmdmac_write(struct bcmdmac_softc *sc, bus_size_t offset, u_int32_t value)
+bcmdmac_write(struct bcmdmac_softc *sc, bus_size_t offset, uint32_t value)
 {
 	bus_space_write_4(sc->sc_iot, sc->sc_ioh, offset, value);
 }
 
-u_int32_t
+uint32_t
 bcmdmac_read(struct bcmdmac_softc *sc, bus_size_t offset)
 {
 	return bus_space_read_4(sc->sc_iot, sc->sc_ioh, offset);
@@ -138,7 +138,7 @@ bcmdmac_attach(struct device *parent, struct device *self, void *aux)
 	struct bcmdmac_softc *sc = (struct bcmdmac_softc *)self;
 	struct fdt_attach_args *faa = aux;
 	struct bcmdmac_channel *ch;
-	u_int32_t val;
+	uint32_t val;
 	int index;
 	bus_addr_t addr;
 	bus_size_t size;
@@ -201,7 +201,7 @@ bcmdmac_intr(void *arg)
 {
 	struct bcmdmac_channel *ch = arg;
 	struct bcmdmac_softc *sc = ch->ch_sc;
-	u_int32_t cs, ce;
+	uint32_t cs, ce;
 
 	cs = bcmdmac_read(sc, DMAC_CS(ch->ch_index));
 	bcmdmac_write(sc, DMAC_CS(ch->ch_index), cs);
@@ -220,7 +220,7 @@ bcmdmac_intr(void *arg)
 
 struct bcmdmac_channel *
 bcmdmac_alloc(enum bcmdmac_type type, int ipl,
-	    void (*cb)(u_int32_t, u_int32_t, void *), void *cbarg)
+	    void (*cb)(uint32_t, uint32_t, void *), void *cbarg)
 {
 	struct bcmdmac_softc *sc = bcmdmac_sc;
 	struct bcmdmac_channel *ch = NULL;
@@ -268,7 +268,7 @@ void
 bcmdmac_free(struct bcmdmac_channel *ch)
 {
 	struct bcmdmac_softc *sc = ch->ch_sc;
-	u_int32_t val;
+	uint32_t val;
 
 	bcmdmac_halt(ch);
 
@@ -298,7 +298,7 @@ int
 bcmdmac_transfer(struct bcmdmac_channel *ch)
 {
 	struct bcmdmac_softc *sc = ch->ch_sc;
-	u_int32_t val;
+	uint32_t val;
 
 	val = bcmdmac_read(sc, DMAC_CS(ch->ch_index));
 	if (ISSET(val, DMAC_CS_ACTIVE))
@@ -314,7 +314,7 @@ void
 bcmdmac_halt(struct bcmdmac_channel *ch)
 {
 	struct bcmdmac_softc *sc = ch->ch_sc;
-	u_int32_t val;
+	uint32_t val;
 
 	/* pause DMA */
 	val = bcmdmac_read(sc, DMAC_CS(ch->ch_index));

@@ -94,7 +94,7 @@ struct cfattach bcmclock_ca = {
 	bcmclock_attach,
 };
 
-u_int32_t bcmclock_get_frequency(void *, u_int32_t *);
+uint32_t bcmclock_get_frequency(void *, uint32_t *);
 
 /* We initialize the vb struct (that happens to contain bcmclock data in it)
  * lazily. bcmclock_init_vb will perform the initialization, but should only be
@@ -129,8 +129,8 @@ bcmclock_attach(struct device *parent, struct device *self, void *aux)
 	clock_register(&sc->sc_cd);
 }
 
-u_int32_t
-bcmclock_get_frequency(void *cookie, u_int32_t *cells)
+uint32_t
+bcmclock_get_frequency(void *cookie, uint32_t *cells)
 {
 	struct request {
 		struct vcprop_buffer_hdr vb_hdr;
@@ -138,7 +138,7 @@ bcmclock_get_frequency(void *cookie, u_int32_t *cells)
 		struct vcprop_tag end;
 	} __attribute((aligned(16), packed));
 
-	u_int32_t result;
+	uint32_t result;
 	struct request req = {
 		.vb_hdr = {
 			.vpb_len = sizeof(req),

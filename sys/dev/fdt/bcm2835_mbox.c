@@ -78,7 +78,7 @@ struct bcmmbox_softc {
 	struct mutex sc_lock;
 	struct mutex sc_intr_lock;
 	int sc_chan[BCMMBOX_NUM_CHANNELS];
-	u_int32_t sc_mbox[BCMMBOX_NUM_CHANNELS];
+	uint32_t sc_mbox[BCMMBOX_NUM_CHANNELS];
 };
 
 static struct bcmmbox_softc *bcmmbox_sc;
@@ -92,8 +92,8 @@ struct cfattach bcmmbox_ca = {
 	bcmmbox_attach,
 };
 
-u_int32_t bcmmbox_reg_read(struct bcmmbox_softc *, int);
-void bcmmbox_reg_write(struct bcmmbox_softc *, int, u_int32_t);
+uint32_t bcmmbox_reg_read(struct bcmmbox_softc *, int);
+void bcmmbox_reg_write(struct bcmmbox_softc *, int, uint32_t);
 void bcmmbox_reg_flush(struct bcmmbox_softc *, int);
 int bcmmbox_intr(void *);
 int bcmmbox_intr_helper(struct bcmmbox_softc *, int);
@@ -178,14 +178,14 @@ clean_bus_space_map:
 	bus_space_unmap(sc->sc_iot, sc->sc_ioh, size);
 }
 
-u_int32_t
+uint32_t
 bcmmbox_reg_read(struct bcmmbox_softc *sc, int addr)
 {
 	return bus_space_read_4(sc->sc_iot, sc->sc_ioh, addr);
 }
 
 void
-bcmmbox_reg_write(struct bcmmbox_softc *sc, int addr, u_int32_t val)
+bcmmbox_reg_write(struct bcmmbox_softc *sc, int addr, uint32_t val)
 {
 	bus_space_write_4(sc->sc_iot, sc->sc_ioh, addr, val);
 }
@@ -212,7 +212,7 @@ bcmmbox_intr(void *cookie)
 int
 bcmmbox_intr_helper(struct bcmmbox_softc *sc, int broadcast)
 {
-	u_int32_t mbox, chan, data;
+	uint32_t mbox, chan, data;
 	int ret = 0;
 
 	bcmmbox_reg_flush(sc, BUS_SPACE_BARRIER_READ);
@@ -239,10 +239,10 @@ bcmmbox_intr_helper(struct bcmmbox_softc *sc, int broadcast)
 }
 
 void
-bcmmbox_read(u_int8_t chan, u_int32_t *data)
+bcmmbox_read(uint8_t chan, uint32_t *data)
 {
 	struct bcmmbox_softc *sc = bcmmbox_sc;
-	u_int32_t mbox, rchan, rdata, status;
+	uint32_t mbox, rchan, rdata, status;
 
 	KASSERT(sc != NULL);
 	KASSERT(chan == (chan & BCMMBOX_CHANNEL_MASK));
@@ -269,7 +269,7 @@ void
 bcmmbox_write(uint8_t chan, uint32_t data)
 {
 	struct bcmmbox_softc *sc = bcmmbox_sc;
-	u_int32_t rdata;
+	uint32_t rdata;
 
 	KASSERT(sc != NULL);
 	KASSERT(chan == (chan & BCMMBOX_CHANNEL_MASK));
@@ -287,7 +287,7 @@ bcmmbox_write(uint8_t chan, uint32_t data)
 }
 
 int
-bcmmbox_post(u_int8_t chan, void *buf, size_t len, u_int32_t *res)
+bcmmbox_post(uint8_t chan, void *buf, size_t len, uint32_t *res)
 {
 	struct bcmmbox_softc *sc = bcmmbox_sc;
 	bus_dmamap_t map;

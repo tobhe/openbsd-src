@@ -78,7 +78,7 @@ sdhc_fdt_attach(struct device *parent, struct device *self, void *aux)
 	struct fdt_attach_args *faa = aux;
 	struct regmap *rm = NULL;
 	uint32_t phandle, freq;
-	u_int32_t caps = 0;
+	uint32_t caps = 0;
 
 	if (faa->fa_nreg < 1) {
 		printf(": no registers\n");
