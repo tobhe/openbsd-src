@@ -59,7 +59,7 @@
 #include <dev/ofw/openfirm.h>
 
 #include <dev/fdt/bcm2835_mbox.h>
-#include <dev/fdt/bcm2835_mbox_vcprop.h>
+#include <dev/fdt/bcm2835_vcprop.h>
 
 #define DEVNAME(sc) ((sc)->sc_dev.dv_xname)
 

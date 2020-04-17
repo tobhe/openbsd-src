@@ -46,8 +46,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef BCMMBOX_H
-#define BCMMBOX_H
+#ifndef BCM2835_MBOX_H
+#define BCM2835_MBOX_H
 
 #define BCMMBOX_NUM_CHANNELS 16
 #define BCMMBOX_CHANNEL_MASK 0xf
@@ -97,4 +97,4 @@ void bcmmbox_write(u_int8_t chan, u_int32_t data);
 
 int bcmmbox_post(u_int8_t, void *, size_t, u_int32_t *);
 
-#endif /* BCM2835_DMAC_H */
+#endif /* BCM2835_MBOX_H */
