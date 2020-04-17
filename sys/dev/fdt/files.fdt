@@ -458,9 +458,9 @@ device bcmsdhost: sdmmcbus
 attach bcmsdhost at fdt
 file	dev/fdt/bcm2835_sdhost.c	bcmsdhost
 
-device cprman
-attach cprman at fdt
-file	dev/fdt/bcm2835_cprman.c	cprman
+device bcmclock
+attach bcmclock at fdt
+file	dev/fdt/bcm2835_clock.c		bcmclock
 
 device bcmdmac
 attach bcmdmac at fdt

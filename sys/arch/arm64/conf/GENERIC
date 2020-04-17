@@ -150,7 +150,7 @@ usb*		at dwctwo?
 bcmsdhost*	at fdt?
 sdmmc*		at bcmsdhost?
 bcmmbox*	at fdt? early 1
-cprman*		at fdt? early 1
+bcmclock*		at fdt? early 1
 bcmdmac*	at fdt? early 1
 
 # Amlogic SoCs

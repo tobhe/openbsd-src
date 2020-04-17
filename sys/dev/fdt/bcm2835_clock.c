@@ -1,4 +1,4 @@
-/*	$OpenBSD: bcm2835_cprman.c,v 1.0 2019/02/05 10:52:30 Neil Ashford $	*/
+/*	$OpenBSD$	*/
 
 /*
  * Copyright (c) 2020 Tobias Heider <tobhe@openbsd.org>
@@ -61,68 +61,68 @@
 #include <uvm/uvm.h>
 
 enum {
-	CPRMAN_CLOCK_TIMER = 17,
-	CPRMAN_CLOCK_UART = 19,
-	CPRMAN_CLOCK_VPU = 20,
-	CPRMAN_CLOCK_V3D = 21,
-	CPRMAN_CLOCK_ISP = 22,
-	CPRMAN_CLOCK_H264 = 23,
-	CPRMAN_CLOCK_VEC = 24,
-	CPRMAN_CLOCK_HSM = 25,
-	CPRMAN_CLOCK_SDRAM = 26,
-	CPRMAN_CLOCK_TSENS = 27,
-	CPRMAN_CLOCK_EMMC = 28,
-	CPRMAN_CLOCK_PERIIMAGE = 29,
-	CPRMAN_CLOCK_PWM = 30,
-	CPRMAN_CLOCK_PCM = 31,
-	CPRMAN_NCLOCK
+	BCMCLOCK_CLOCK_TIMER = 17,
+	BCMCLOCK_CLOCK_UART = 19,
+	BCMCLOCK_CLOCK_VPU = 20,
+	BCMCLOCK_CLOCK_V3D = 21,
+	BCMCLOCK_CLOCK_ISP = 22,
+	BCMCLOCK_CLOCK_H264 = 23,
+	BCMCLOCK_CLOCK_VEC = 24,
+	BCMCLOCK_CLOCK_HSM = 25,
+	BCMCLOCK_CLOCK_SDRAM = 26,
+	BCMCLOCK_CLOCK_TSENS = 27,
+	BCMCLOCK_CLOCK_EMMC = 28,
+	BCMCLOCK_CLOCK_PERIIMAGE = 29,
+	BCMCLOCK_CLOCK_PWM = 30,
+	BCMCLOCK_CLOCK_PCM = 31,
+	BCMCLOCK_NCLOCK
 };
 
 
-struct cprman_softc {
+struct bcmclock_softc {
 	struct device		sc_dev;
 	struct clock_device	sc_cd;
 
 };
 
-int cprman_match(struct device *, void *, void *);
-void cprman_attach(struct device *, struct device *, void *);
+int bcmclock_match(struct device *, void *, void *);
+void bcmclock_attach(struct device *, struct device *, void *);
 
-struct cfattach cprman_ca = {
-	sizeof(struct cprman_softc),
-	cprman_match,
-	cprman_attach,
+struct cfattach bcmclock_ca = {
+	sizeof(struct bcmclock_softc),
+	bcmclock_match,
+	bcmclock_attach,
 };
 
-u_int32_t cprman_get_frequency(void *, u_int32_t *);
+u_int32_t bcmclock_get_frequency(void *, u_int32_t *);
 
-/* We initialize the vb struct (that happens to contain cprman data in it)
- * lazily. cprman_init_vb will perform the initialization, but should only be
- * called inside of cprman_init_vb_wrapper. This function will ensure that the
+/* We initialize the vb struct (that happens to contain bcmclock data in it)
+ * lazily. bcmclock_init_vb will perform the initialization, but should only be
+ * called inside of bcmclock_init_vb_wrapper. This function will ensure that the
  * initialization only happens once.
  */
-void cprman_init_vb_wrapper();
-void cprman_init_vb();
+void bcmclock_init_vb_wrapper();
+void bcmclock_init_vb();
 
-struct cfdriver cprman_cd = { NULL, "cprman", DV_DULL };
+struct cfdriver bcmclock_cd = { NULL, "bcmclock", DV_DULL };
 
 int
-cprman_match(struct device *parent, void *match, void *aux)
+bcmclock_match(struct device *parent, void *match, void *aux)
 {
 	struct fdt_attach_args *faa = aux;
 
-	return OF_is_compatible(faa->fa_node, "brcm,bcm2835-cprman");
+	return OF_is_compatible(faa->fa_node, "brcm,bcm2835-bcmclock");
 }
 
 void
-cprman_attach(struct device *parent, struct device *self, void *aux)
+bcmclock_attach(struct device *parent, struct device *self, void *aux)
 {
-	struct cprman_softc *sc = (struct cprman_softc *)self;
+	struct bcmclock_softc *sc = (struct bcmclock_softc *)self;
 	struct fdt_attach_args *faa = aux;
 
 	sc->sc_cd.cd_node = faa->fa_node;
 	sc->sc_cd.cd_cookie = sc;
-	sc->sc_cd.cd_get_frequency = cprman_get_frequency;
+	sc->sc_cd.cd_get_frequency = bcmclock_get_frequency;
 
 	printf("\n");
 
@@ -130,7 +130,7 @@ cprman_attach(struct device *parent, struct device *self, void *aux)
 }
 
 u_int32_t
-cprman_get_frequency(void *cookie, u_int32_t *cells)
+bcmclock_get_frequency(void *cookie, u_int32_t *cells)
 {
 	struct request {
 		struct vcprop_buffer_hdr vb_hdr;
@@ -157,46 +157,46 @@ cprman_get_frequency(void *cookie, u_int32_t *cells)
 	};
 
 	switch (cells[0]) {
-	case CPRMAN_CLOCK_TIMER:
+	case BCMCLOCK_CLOCK_TIMER:
 		break;
-	case CPRMAN_CLOCK_UART:
+	case BCMCLOCK_CLOCK_UART:
 		req.vbt_clkrate.id = VCPROP_CLK_UART;
 		break;
-	case CPRMAN_CLOCK_VPU:
+	case BCMCLOCK_CLOCK_VPU:
 		req.vbt_clkrate.id = VCPROP_CLK_CORE;
 		break;
-	case CPRMAN_CLOCK_V3D:
+	case BCMCLOCK_CLOCK_V3D:
 		req.vbt_clkrate.id = VCPROP_CLK_V3D;
 		break;
-	case CPRMAN_CLOCK_ISP:
+	case BCMCLOCK_CLOCK_ISP:
 		req.vbt_clkrate.id = VCPROP_CLK_ISP;
 		break;
-	case CPRMAN_CLOCK_H264:
+	case BCMCLOCK_CLOCK_H264:
 		req.vbt_clkrate.id = VCPROP_CLK_H264;
 		break;
-	case CPRMAN_CLOCK_VEC:
+	case BCMCLOCK_CLOCK_VEC:
 		break;
-	case CPRMAN_CLOCK_HSM:
+	case BCMCLOCK_CLOCK_HSM:
 		break;
-	case CPRMAN_CLOCK_SDRAM:
+	case BCMCLOCK_CLOCK_SDRAM:
 		req.vbt_clkrate.id = VCPROP_CLK_SDRAM;
 		break;
-	case CPRMAN_CLOCK_TSENS:
+	case BCMCLOCK_CLOCK_TSENS:
 		break;
-	case CPRMAN_CLOCK_EMMC:
+	case BCMCLOCK_CLOCK_EMMC:
 		req.vbt_clkrate.id = VCPROP_CLK_EMMC;
 		break;
-	case CPRMAN_CLOCK_PERIIMAGE:
+	case BCMCLOCK_CLOCK_PERIIMAGE:
 		break;
-	case CPRMAN_CLOCK_PWM:
+	case BCMCLOCK_CLOCK_PWM:
 		req.vbt_clkrate.id = VCPROP_CLK_PWM;
 		break;
-	case CPRMAN_CLOCK_PCM:
+	case BCMCLOCK_CLOCK_PCM:
 		break;
 	}
 
 	if (req.vbt_clkrate.id == 0) {
-		printf("cprman[unknown]: request to unknown clock type %d\n",
+		printf("bcmclock[unknown]: request to unknown clock type %d\n",
 		       cells[0]);
 		return 0;
 	}
@@ -206,7 +206,7 @@ cprman_get_frequency(void *cookie, u_int32_t *cells)
 	if (vcprop_tag_success_p(&req.vbt_clkrate.tag))
 		return req.vbt_clkrate.rate;
 
-	printf("cprman[unknown]: vcprop result %x:%x\n", req.vb_hdr.vpb_rcode,
+	printf("bcmclock[unknown]: vcprop result %x:%x\n", req.vb_hdr.vpb_rcode,
 	       req.vbt_clkrate.tag.vpt_rcode);
 
 	return 0;
