@@ -454,9 +454,9 @@ device	bdpmic
 attach	bdpmic at i2c
 file	dev/fdt/bd718x7.c		bdpmic
 
-device bsdhost: sdmmcbus
-attach bsdhost at fdt
-file	dev/fdt/bcm2835_sdhost.c	bsdhost
+device bcmsdhost: sdmmcbus
+attach bcmsdhost at fdt
+file	dev/fdt/bcm2835_sdhost.c	bcmsdhost
 
 device cprman
 attach cprman at fdt
