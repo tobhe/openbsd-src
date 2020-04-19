@@ -457,3 +457,7 @@ file	dev/fdt/bd718x7.c		bdpmic
 device bcmclock
 attach bcmclock at fdt
 file	dev/fdt/bcm2835_clock.c		bcmclock
+
+device bcmmbox
+attach bcmmbox at fdt
+file	dev/fdt/bcm2835_mbox.c		bcmmbox
