@@ -453,3 +453,7 @@ file	dev/fdt/sfp.c			sfp
 device	bdpmic
 attach	bdpmic at i2c
 file	dev/fdt/bd718x7.c		bdpmic
+
+device bcmclock
+attach bcmclock at fdt
+file	dev/fdt/bcm2835_clock.c		bcmclock
