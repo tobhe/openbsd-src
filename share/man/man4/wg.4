@@ -1,0 +1,232 @@
+.\" Copyright?
+.Dd $Mdocdate: Feb 14 2020 $
+.Dt WG 4
+.Os
+.Sh NAME
+.Nm wg
+.Nd WireGuard pseudo-device
+.Sh SYNOPSIS
+.Cd "pseudo-device wg"
+.Sh DESCRIPTION
+The
+.Nm wg
+driver provides a simple Virtual Private Network (VPN) interface for
+securely communicating with other WireGuard endpoints.
+.Nm wg
+interfaces implement the WireGuard protocol, heavily relying on the
+Noise protocol framework.
+.Pp
+Each interface is able to connect to a number of endpoints, relying on
+an internal routing table to direct outgoing IP traffic to the correct
+endpoint. Incoming traffic is also matched against this routing table
+and dropped if the source does not match the corresponding output route.
+.Pp
+The interfaces can be created at runtime using the
+.Ic ifconfig wg Ns Ar N Ic create
+command or by setting up a
+.Xr hostname.if 5
+configuration file for
+.Xr netstart 8 .
+The interface itself can be configured with
+.Xr ifconfig 8 ;
+see it's manual page for more information.
+Support is also available in the
+.Nm wireguard-tools
+package by using the
+.Xr wg 8
+and
+.Xr wg-quick 8
+utilities.
+.Pp
+.Nm wg
+interfaces support the following
+.Xr ioctl 2 Ns s :
+.Bl -tag -width indent -offset 3n
+.It Dv SIOCSWG Fa "struct wg_data_io *"
+Set the device configuration.
+.It Dv SIOCGWG Fa "struct wg_data_io *"
+Get the device configuration.
+.El
+.Sh DESIGN
+WireGuard is designed as a small, secure, easy to use VPN. It operates at IP
+level, supporting both IPv4, IPv6.
+
+The following items give a brief overview of WireGuard features:
+.Bl -tag -width indent -offset 3n
+.It Peer
+A peer is a host that the interface creates a connection with. There is
+no concept of client/server as both ends of the connection are equal. An
+interface may have multiple peers.
+.It Key
+Each interface has a private key and corresponding public key. The
+public key is used to identify the interface to other peers.
+.It Preshared-Key
+In addition to the interface keys, each peer pair can have a
+unique preshared key. This key is used in the handshake to provide
+post-quantum security. It is optional, however recommended.
+.It Allowed-IPs
+Allowed-IPs dictate the tunneled IP addresses each peer is allowed to
+send from. After decryption, all packets have their source IP address
+checked against the sending peer's allowed IPs list. This list is
+hierarchical, allowing peers to have overlapping ranges, with the most
+specific range taking precedence. They can be thought of like a routing
+table, as outgoing packets are also matched against this list to
+determine which peer to send to.
+.Pp
+To make it clear, this does not correspond to the IP address that UDP
+packets are sent to or received from, but rather the IP addresses that
+are encapsulated in the tunnel.
+.It Handshake
+In order to establish a set of shared secret keys, two peers perform a
+handshake. This occurs every 2 minutes while traffic is being sent. If
+no traffic is being sent, then no handshake occurs. When traffic
+resumes, a new handshake is performed. Each handshake generates a new
+set of ephemeral keys to provide forward secrecy.
+.It Connection-less
+Due to the handshake behavior, there is no connected or disconnected
+state. Thus WireGuard is considered "connection-less".
+.El
+.Sh KEYS
+Keys for WireGuard can be generated from any sufficiently secure random
+source. The Curve25519 keys and the preshared keys are both 32 bytes
+long and are commonly encoded in base64 for ease of use.
+.Pp
+Keys can be generated with
+.Xr openssl 1
+as such:
+.Pp
+.Dl $ openssl rand -base64 32
+.Pp
+It should be noted that not all 32 byte strings are valid Curve25519
+keys. The key must be an element of a finite set, which is achieved by
+setting specific bits in the string. The interface will perform this for
+you, so you may just pass a 32 byte random string. This does not apply
+to the preshared key.
+.Pp
+It goes without saying that these keys must be kept private.
+.Pp
+When an interface has a private key set with
+.Nm wgkey ,
+the corresponding
+public key is shown in the status output of the interface, like so:
+.Bd -literal -offset indent
+wgkey (pub) NW5l2q2MArV5ZXpVXSZwBOyqhohOf8ImDgUB+jPtJps=
+.Ed
+.Sh DIRECTIVES
+.Xr ifconfig 8
+supports a number of directives and can be summarised with:
+.Pp
+.Bd -filled -offset indent
+.Bk -words
+.Nm ifconfig
+.Ar wg-interface
+.Op Cm wgkey Ar privatekey
+.Op Cm wgport Ar port
+.Op Cm wgrtable Ar rtable
+.Oo Oo Fl Oc Ns Cm wgpeer Ar publickey
+.Op Cm wgpsk Ar presharedkey
+.Op Fl wgpsk
+.Op Cm wgpka Ar persistent-keepalive
+.Op Cm wgpip Ar ip port
+.Op Cm wgaip Ar allowed-ip/prefix
+.Op Fl wgaipall Oc
+.Op Fl wgpeerall
+.Op Cm wgconf
+.Ek
+.Ed
+.Pp
+For further detail, please see
+.Xr ifconfig 8 .
+.Sh EXAMPLES
+The following script will create two
+.Nm wg
+interfaces in separate
+.Xr rdomain 4
+.Bd -literal -offset indent
+#!/bin/sh
+
+ifconfig wg1 create wgport 111 wgkey `openssl rand -base64 32` rdomain 1
+ifconfig wg2 create wgport 222 wgkey `openssl rand -base64 32` rdomain 2
+
+PUB1="`ifconfig wg1 | grep 'wgkey (pub)' | cut -d ' ' -f 3`"
+PUB2="`ifconfig wg2 | grep 'wgkey (pub)' | cut -d ' ' -f 3`"
+
+ifconfig wg1 wgpeer $PUB2 wgpip 127.0.0.1 222 wgaip 192.168.5.2/32
+ifconfig wg2 wgpeer $PUB1 wgpip 127.0.0.1 111 wgaip 192.168.5.1/32
+ifconfig wg1 192.168.5.1/24
+ifconfig wg2 192.168.5.2/24
+.Ed
+.Pp
+After this, it should be possible to ping one interface from the other,
+as such.
+.Bd -literal -offset indent
+route -T1 exec ping 192.168.5.2
+.Ed
+.Pp
+The two interfaces are able to communicate over the UDP tunnel which
+resides in the default
+.Xr rdomain 4 .
+This example carries no practical use apart from demonstrating two
+interfaces on the same machine. You can see the listening sockets with
+.Xr netstat 1 .
+.Bd -literal -offset indent
+netstat -ln
+.Ed
+.Sh TROUBLESHOOTING
+.Pp
+The
+.Nm
+interface supports runtime debugging, which can be enabled with:
+.Bd -literal -offset indent
+ifconfig wgN debug
+.Ed
+.Pp
+Some common error messages you may face are detailed below:
+.Bl -tag -width indent -offset 3n
+.It "Handshake for peer X did not complete after 5 seconds, retrying"
+Peer X did not reply to our initiation packet. This may be caused by
+but not limited to the following:
+.Bl -bullet
+.It
+The peer does not have the local interface configured as a peer. Peers
+must be able to mutally authenticate each other.
+.It
+The peer endpoint IP address is incorrectly configured.
+.It
+There are firewall rules preventing communication between hosts
+.El
+.It "Invalid handshake initiation"
+The incoming handshake packet could not be processed. This is likely
+due to the local interface not containing the correct public key for
+the peer.
+.It "Invalid initiation MAC"
+The incoming handshake initiation packet had an invalid MAC. This is
+likely because the initiation sender has the wrong public key for the
+handshake receiver.
+.It "Packet has unallowed src IP from peer X"
+An incoming data packet, after decryption has a source IP address that
+is not assigned to Peer X's allowed-ips.
+.El
+.Pp
+Addtionally, if you attempt to bring up the interface and it does not
+appear to be working, More specifically the IFF_RUNNING flag is not set
+on the interface, then check that no other services or daemons are
+running on the chosen
+.Nm
+port.
+.Sh SEE ALSO
+.Xr inet 4 ,
+.Xr ip 4 ,
+.Xr netintro 4 ,
+.Xr hostname.if 5 ,
+.Xr pf.conf 5 ,
+.Xr ifconfig 8 ,
+.Xr netstart 8 ,
+.Xr wg 8 ,
+.Xr wg-quick 8
+.Rs
+.%T WireGuard whitepaper
+.%U https://www.wireguard.com/papers/wireguard.pdf
+.Re
+.Sh AUTHORS
+.An Matt Dunwoodie <ncon@noconroy.net> .

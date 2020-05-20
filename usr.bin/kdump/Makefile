@@ -26,6 +26,7 @@ ioctl.c: ${.CURDIR}/Makefile ${.CURDIR}/mkioctls
 	    ${SYS_DIR}/net/if_pppoe.h \
 	    ${SYS_DIR}/net/if_trunk.h \
 	    ${SYS_DIR}/net/if_tun.h \
+	    ${SYS_DIR}/net/if_wg.h \
 	    ${SYS_DIR}/net/pfvar.h \
 	    ${SYS_DIR}/net/pipex.h \
 	    ${SYS_DIR}/net80211/ieee80211_ioctl.h \

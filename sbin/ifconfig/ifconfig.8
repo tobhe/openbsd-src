@@ -207,7 +207,8 @@ At least the following devices can be created on demand:
 .Xr tun 4 ,
 .Xr vether 4 ,
 .Xr vlan 4 ,
-.Xr vxlan 4
+.Xr vxlan 4 ,
+.Xr wg 4
 .It Cm debug
 Enable driver-dependent debugging code; usually, this turns on
 extra console error logging.
@@ -2041,6 +2042,148 @@ Valid tag values are from 1 to 4094 inclusive.
 Clear the tag value.
 Packets on a VLAN interface without a tag set will use a value of
 0 in their headers.
+.El
+.Sh WIREGUARD
+.nr nS 1
+.Bk -words
+.Nm ifconfig
+.Ar wg-interface
+.Op Cm wgkey Ar privatekey
+.Op Cm wgport Ar port
+.Op Cm wgrtable Ar rtable
+.Oo Oo Fl Oc Ns Cm wgpeer Ar publickey
+.Op Cm wgpsk Ar presharedkey
+.Op Fl wgpsk
+.Op Cm wgpka Ar persistent-keepalive
+.Op Cm wgpip Ar ip port
+.Op Cm wgaip Ar allowed-ip/prefix
+.Op Fl wgaipall Oc
+.Op Fl wgpeerall
+.Op Cm wgconf
+.Ek
+.nr nS 0
+.Pp
+The following options are available for
+.Xr wg 4
+interfaces:
+.Bl -tag -width Ds
+.It Cm wgkey Ar privatekey
+Set the local private key of the interface to
+.Ar privatekey .
+This is a random 32 byte value, encoded as base64. The corresponding
+public key must be distributed to peers that this interface intends to
+communicate with.  It may be generated as such:
+.Pp
+.Dl $ openssl rand -base64 32
+.Pp
+A valid Curve25519 key is required to have 5 bits set to specific
+values. This is done by the interface, so it is safe to provide a random
+32 byte base64 string. Once set, the corresponding public key will be
+returned in the interface status.
+.It Cm wgport Ar port
+Set the UDP port that the tunnel operates on to
+.Ar port .
+The interface will bind to INADDR_ANY and IN6ADDR_ANY_INIT.
+.It Cm wgrtable Ar rtable
+Use routing table
+.Ar rtable
+instead of the default table for the tunnel. The tunnel does not need
+to terminate in the same routing domain as the interface itself.
+.Ar rtable
+can be set to any valid routing table ID; the corresponding routing
+domain is derived from this table.
+.It Cm wgpeer Ar publickey
+Select the peer to perform the subsequent operations on. This will
+create a peer with associated
+.Ar publickey ,
+if it does not yet exist.  This can be specified multiple times in a
+single command and the key is specified as 32 bytes, base64 encoded
+string.
+.It Cm -wgpeer Ar publickey
+Remove the peer with the associated
+.It Cm -wgpeerall
+Remove all peers from the interface
+.El
+.Pp
+The following commands are used to configure peers for the interface.
+Each interface can have multiple peers. In order to add a peer, a
+.Cm wgpeer
+argument must be specified, followed by its configuration options.
+.Pp
+.Bl -tag -width Ds
+.It Cm wgpsk Ar presharedkey
+Set the preshared key for the peer. This is a random 32 byte, base64
+encoded string that both ends must agree on. It offers a post-quantum
+resistance to the Diffie-Hellman exchange. If there is no preshared key,
+the exact same handshake is performed, however the preshared key is set
+to all zero. This can be generated in the same way as
+.Ar privatekey .
+.It Cm -wgpsk
+Remove the preshared key from the specified peer.
+.It Cm wgpka Ar persistent-keepalive
+Set the interval that a keepalive should be sent at. By setting the
+interval to 0, the functionality is disabled. This is often used to
+ensure a peer will be accessible when protected by a firewall, as is
+when behind a NAT address. A value of 25 is commonly used.
+.It Cm wgpip Ar ip port
+Set the IP address and port to send the encapsulated packets to. If the
+peer changes address, the local interface will update the address after
+receiving a correctly authenticated packet. The IP address can be either
+IPv4 or IPv6, and the port is a regular 16 bit UDP port.
+.It Cm wgaip Ar allowed-ip/prefix
+Add an allowed-ip to the peer. This indicates the IP addresses a peer
+is allowed to send from. That is, in order for an incoming packet from
+a peer to reach the interface, the decryped IP source address must be in
+the peer's allowed-ip list. Both IPv4 and IPv6 addresses are supported.
+.Pp
+The allowed-ip list also provides an outgoing routing table for outgoing
+packets. Overlapping ranges can be configured, with packets being
+directed to the most specific route. Likewise, packets can only be
+received from the most specific route.
+.It Fl wgaipall
+Remove all allowed-ips from the peer
+.El
+.Pp
+Unlike the other commands, the following command receives input from
+stdin. This allows very fast configuration with a large number of
+peers.
+
+.Bl -tag -width Ds
+.It Cm wgconf
+When specified, this will cause
+.Nm
+to read from stdin the following directives. The usage of the
+directives is aligned with their usage above. Peer specific directives
+.Cm wgpsk ,
+.Cm wgpip ,
+.Cm wgaip
+must not precede a
+.Cm wgpeer
+directive and will only apply to the single
+.Cm wgpeer .
+.Pp
+When this command is used, all previously existing peers and
+allowed-ips will be overwritten.
+.Pp
+Any of the following directives may be used, limited to one per line:
+.Bl -bullet
+.It
+.Cm wgkey Ar privatekey
+.It
+.Cm wgport Ar port
+.It
+.Cm wgrtable Ar rtable
+.It
+.Cm wgpeer Ar publickey
+.It
+.Cm wgpsk Ar presharedkey
+.It
+.Cm wgpip Ar ip port
+.It
+.Cm wgaip Ar allowed-ip/prefix
+.It
+.Cm # Ar comment
+.El
 .El
 .Sh EXAMPLES
 Assign the

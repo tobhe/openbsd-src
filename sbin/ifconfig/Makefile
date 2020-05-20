@@ -4,7 +4,7 @@ PROG=	ifconfig
 SRCS=	ifconfig.c brconfig.c sff.c
 MAN=	ifconfig.8
 
-LDADD=	-lutil -lm
+LDADD=	-lutil -lm -lcrypto
 DPADD=	${LIBUTIL}
 
 .include <bsd.prog.mk>

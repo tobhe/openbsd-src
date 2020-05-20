@@ -82,6 +82,7 @@
 #include <net/if_pflow.h>
 #include <net/if_pppoe.h>
 #include <net/if_trunk.h>
+#include <net/if_wg.h>
 #include <net/trunklacp.h>
 #include <net/if_sppp.h>
 #include <net/ppp_defs.h>
@@ -93,6 +94,7 @@
 #include <net/if_vlan_var.h>
 
 #include <netmpls/mpls.h>
+#include <openssl/evp.h>
 
 #include <ctype.h>
 #include <err.h>
@@ -345,6 +347,25 @@ void	utf16_to_char(uint16_t *, int, char *, size_t);
 int	char_to_utf16(const char *, uint16_t *, size_t);
 void	transceiver(const char *, int);
 void	transceiverdump(const char *, int);
+
+/* WG */
+void	setwgpeer(const char *, int);
+void	setwgpeerip(const char *, const char *);
+void	setwgpeeraip(const char *, int);
+void	setwgpeerpsk(const char *, int);
+void	setwgpeerpka(const char *, int);
+void	setwgport(const char *, int);
+void	setwgkey(const char *, int);
+void	setwgrtable(const char *, int);
+
+void	unsetwgpeer(const char *, int);
+void	unsetwgpeerpsk(const char *, int);
+void	unsetwgpeerall(const char *, int);
+void	unsetwgpeeraipall(const char *, int);
+
+void	setwgconf(const char *, int);
+
+void	wg_status();
 #else
 void	setignore(const char *, int);
 #endif
@@ -369,6 +390,7 @@ int	actions;			/* Actions performed */
 #define	A_MEDIAINST	0x0008		/* instance or inst command */
 #define	A_MEDIAMODE	0x0010		/* mode command */
 #define	A_JOIN		0x0020		/* join */
+#define	A_WG		0x0040		/* any wg command */
 #define A_SILENT	0x8000000	/* doing operation, do not print */
 
 #define	NEXTARG0	0xffffff
@@ -599,6 +621,21 @@ const struct	cmd {
 	{ "transceiver", NEXTARG0,	0,		transceiver },
 	{ "sff",	NEXTARG0,	0,		transceiver },
 	{ "sffdump",	0,		0,		transceiverdump },
+
+	{ "wgpeer",	NEXTARG,	A_WG,		setwgpeer},
+	{ "wgpip",	NEXTARG2,	A_WG,		NULL,	setwgpeerip},
+	{ "wgaip",	NEXTARG,	A_WG,		setwgpeeraip},
+	{ "wgpsk",	NEXTARG,	A_WG,		setwgpeerpsk},
+	{ "wgpka",	NEXTARG,	A_WG,		setwgpeerpka},
+	{ "wgport",	NEXTARG,	A_WG,		setwgport},
+	{ "wgkey",	NEXTARG,	A_WG,		setwgkey},
+	{ "wgrtable",	NEXTARG,	A_WG,		setwgrtable},
+	{ "-wgpeer",	NEXTARG,	A_WG,		unsetwgpeer},
+	{ "-wgpsk",	NEXTARG,	A_WG,		unsetwgpeerpsk},
+	{ "-wgpeerall",	0,		A_WG,		unsetwgpeerall},
+	{ "-wgaipall",	0,		A_WG,		unsetwgpeeraipall},
+	{ "wgconf",	0,		A_WG,		setwgconf},
+
 #else /* SMALL */
 	{ "powersave",	NEXTARG0,	0,		setignore },
 	{ "priority",	NEXTARG,	0,		setignore },
@@ -670,6 +707,8 @@ void	process_media_commands(void);
 void	init_current_media(void);
 
 void	process_join_commands(void);
+
+void	process_wg_commands(void);
 
 unsigned long get_ts_map(int, int, int);
 
@@ -912,6 +951,10 @@ nextarg:
 		printif(ifr.ifr_name, aflag ? ifaliases : 1);
 		return (0);
 	}
+
+#ifndef SMALL
+	process_wg_commands();
+#endif
 
 	process_join_commands();
 
@@ -3341,6 +3384,7 @@ status(int link, struct sockaddr_dl *sdl, int ls)
 	mpls_status();
 	pflow_status();
 	umb_status();
+	wg_status();
 #endif
 	trunk_status();
 	getifgroups();
@@ -5623,6 +5667,298 @@ setifpriority(const char *id, int param)
 		warn("SIOCSIFPRIORITY");
 }
 
+/*
+ * WireGuard configuration
+ *
+ * WG_BASE64_KEY_LEN specifies the size of a base64 encoded WireGuard key.
+ * WG_TMP_KEY_LEN specifies the size of a decoded base64 key. For every 4
+ * input (base64) bytes, 3 output bytes wil be produced. The output will be
+ * padded with 0 bits, therefore we need more than the regular 32 bytes of
+ * space.
+ */
+#define WG_BASE64_KEY_LEN (4 * ((WG_KEY_LEN + 2) / 3))
+#define WG_TMP_KEY_LEN (WG_BASE64_KEY_LEN / 4 * 3)
+#define WG_LOAD_KEY(dst, src, fn_name) do { \
+	uint8_t _tmpkey[WG_TMP_KEY_LEN];\
+	if(strlen(src) != WG_BASE64_KEY_LEN)\
+		errx(1, fn_name " (key): invalid length");\
+	if (EVP_DecodeBlock(_tmpkey, src, WG_BASE64_KEY_LEN) != WG_TMP_KEY_LEN)\
+		errx(1, fn_name " (key): invalid base64");\
+	memcpy(dst, _tmpkey, WG_KEY_LEN);\
+} while (0)
+
+struct wg_interface_io	 wg_interface = { 0 };
+struct wg_peer_io	*wg_peer = NULL;
+struct wg_aip_io	*wg_aip = NULL;
+
+void
+setwgpeer(const char *peerkey_b64, int param)
+{
+	if ((wg_peer = malloc(sizeof(*wg_peer))) == NULL)
+		err(1, "malloc");
+	bzero(wg_peer, sizeof(*wg_peer));
+
+	wg_peer->p_flags |= WG_PEER_HAS_PUBLIC;
+	WG_LOAD_KEY(wg_peer->p_public, peerkey_b64, "wgpeer");
+
+	wg_peer->p_next = wg_interface.i_peers;
+	wg_interface.i_peers = wg_peer;
+}
+
+void
+setwgpeeraip(const char *aip, int param)
+{
+	if (wg_peer == NULL)
+		errx(1, "wgaip: wgpeer not set");
+
+	if ((wg_aip = malloc(sizeof(*wg_aip))) == NULL)
+		err(1, "malloc");
+	bzero(wg_aip, sizeof(*wg_aip));
+
+	if (!strchr(aip, ':')) {
+		wg_aip->a_af = AF_INET;
+		wg_aip->a_cidr = inet_net_pton(AF_INET, aip,
+		    &wg_aip->a_ipv4, sizeof(wg_aip->a_ipv4));
+	} else {
+		wg_aip->a_af = AF_INET6;
+		wg_aip->a_cidr = inet_net_pton(AF_INET6, aip,
+		    &wg_aip->a_ipv6, sizeof(wg_aip->a_ipv6));
+	}
+
+	if (wg_aip->a_cidr == -1)
+		err(1, "wgaip: bad address");
+
+	wg_aip->a_next = wg_peer->p_aips;
+	wg_peer->p_aips = wg_aip;
+}
+
+void
+setwgpeerip(const char *host, const char *service)
+{
+	int error;
+	struct addrinfo *ai;
+
+	if (wg_peer == NULL)
+		errx(1, "wgpip: wgpeer not set");
+
+	if ((error = getaddrinfo(host, service, NULL, &ai)) != 0)
+		errx(1, "%s", gai_strerror(error));
+
+	wg_peer->p_flags |= WG_PEER_HAS_ENDPOINT;
+	memcpy(&wg_peer->p_sa, ai->ai_addr, ai->ai_addrlen);
+	freeaddrinfo(ai);
+}
+
+void
+setwgpeerpsk(const char *psk_b64, int param)
+{
+	if (wg_peer == NULL)
+		errx(1, "wgpsk: wgpeer not set");
+	wg_peer->p_flags |= WG_PEER_HAS_PSK;
+	WG_LOAD_KEY(wg_peer->p_psk, psk_b64, "wgpsk");
+}
+
+void
+setwgpeerpka(const char *pka, int param)
+{
+	const char *errmsg = NULL;
+	if (wg_peer == NULL)
+		errx(1, "wgpka: wgpeer not set");
+	/* 43200 == 12h, reasonable for a 16 bit value */
+	wg_peer->p_flags |= WG_PEER_HAS_PKA;
+	wg_peer->p_pka = strtonum(pka, 0, 43200, &errmsg);
+	if (errmsg)
+		errx(1, "wgpka: %s, %s", pka, errmsg);
+}
+
+void
+setwgport(const char *port, int param)
+{
+	const char *errmsg = NULL;
+	wg_interface.i_flags |= WG_INTERFACE_HAS_PORT;
+	wg_interface.i_port = strtonum(port, 1, 65535, &errmsg);
+	if (errmsg)
+		errx(1, "wgport: %s, %s", port, errmsg);
+}
+
+void
+setwgkey(const char *private_b64, int param)
+{
+	wg_interface.i_flags |= WG_INTERFACE_HAS_PRIVATE;
+	WG_LOAD_KEY(wg_interface.i_private, private_b64, "wgkey");
+}
+
+void
+setwgrtable(const char *id, int param)
+{
+	const char *errmsg = NULL;
+	wg_interface.i_flags |= WG_INTERFACE_HAS_RTABLE;
+	wg_interface.i_rtable = strtonum(id, 0, RT_TABLEID_MAX, &errmsg);
+	if (errmsg)
+		errx(1, "wgrtable %s: %s", id, errmsg);
+}
+
+void
+unsetwgpeer(const char *peerkey_b64, int param)
+{
+	setwgpeer(peerkey_b64, param);
+	wg_peer->p_flags |= WG_PEER_REMOVE;
+}
+
+void
+unsetwgpeerpsk(const char *psk_b64, int param)
+{
+	if (wg_peer == NULL)
+		errx(1, "wgpsk: wgpeer not set");
+	wg_peer->p_flags |= WG_PEER_HAS_PSK;
+	bzero(wg_peer->p_psk, WG_KEY_LEN);
+}
+
+void
+unsetwgpeerall(const char *value, int param)
+{
+	wg_interface.i_flags |= WG_INTERFACE_REPLACE_PEERS;
+}
+
+void
+unsetwgpeeraipall(const char *value, int param)
+{
+	if (wg_peer == NULL)
+		errx(1, "wgaipall: wgpeer not set");
+	wg_peer->p_flags |= WG_PEER_REPLACE_AIPS;
+}
+
+void
+setwgconf(const char *value, int param)
+{
+	FILE *f;
+	char *cmd, *arg1, *arg2, *bufp, buf[128];
+
+	unsetwgpeerall(NULL, 0);
+
+	while (fgets(buf, sizeof(buf), stdin) != NULL) {
+		if (buf[0] == '#' || buf[0] == '\n')
+			continue;
+
+		bufp = buf;
+		cmd  = strsep(&bufp, "\n\t\r ");
+		arg1 = strsep(&bufp, "\n\t\r ");
+		arg2 = strsep(&bufp, "\n\t\r ");
+
+		if (strcmp(cmd, "wgpeer") == 0)
+			setwgpeer(arg1, 0);
+		else if (strcmp(cmd, "wgpip") == 0)
+			setwgpeerip(arg1, arg2);
+		else if (strcmp(cmd, "wgaip") == 0)
+			setwgpeeraip(arg1, 0);
+		else if (strcmp(cmd, "wgpsk") == 0)
+			setwgpeerpsk(arg1, 0);
+		else if (strcmp(cmd, "wgpka") == 0)
+			setwgpeerpka(arg1, 0);
+		else if (strcmp(cmd, "wgport") == 0)
+			setwgport(arg1, 0);
+		else if (strcmp(cmd, "wgkey") == 0)
+			setwgkey(arg1, 0);
+		else if (strcmp(cmd, "wgrtable") == 0)
+			setwgrtable(arg1, 0);
+		else
+			err(1, "wgconf");
+	}
+}
+
+void
+process_wg_commands(void)
+{
+	struct wg_data_io	 wgdata;
+
+	if (!(actions & A_WG))
+		return;
+
+	strlcpy(wgdata.wgd_name, ifname, sizeof(wgdata.wgd_name));
+	wgdata.wgd_mem = &wg_interface;
+
+	if (ioctl(sock, SIOCSWG, (caddr_t)&wgdata) == -1)
+		err(1, "SIOCSWG");
+}
+
+void
+wg_status(void)
+{
+	size_t			 i, j, size = 0;
+	struct timespec		 now;
+	char			 hbuf[NI_MAXHOST], sbuf[NI_MAXSERV];
+	char			 key[WG_BASE64_KEY_LEN + 1];
+	struct wg_data_io	 wgdata;
+	struct wg_interface_io	*iface;
+
+	strlcpy(wgdata.wgd_name, ifname, sizeof(wgdata.wgd_name));
+	wgdata.wgd_size = 0;
+	wgdata.wgd_mem = NULL;
+
+	if (ioctl(sock, SIOCGWG, (caddr_t)&wgdata) == -1 &&
+	    (errno == ENOTTY || errno == EPERM))
+		return;
+
+	while (size < wgdata.wgd_size) {
+		size = wgdata.wgd_size;
+		wgdata.wgd_mem = realloc(wgdata.wgd_mem, size);
+		if (ioctl(sock, SIOCGWG, (caddr_t)&wgdata) == -1)
+			err(1, "SIOCGWG");
+	}
+
+	iface = wgdata.wgd_mem;
+
+	if (iface->i_flags & WG_INTERFACE_HAS_PORT)
+		printf("\twgport %hu\n", iface->i_port);
+	if (iface->i_flags & WG_INTERFACE_HAS_RTABLE)
+		printf("\twgrtable %d\n", iface->i_rtable);
+	if (iface->i_flags & WG_INTERFACE_HAS_PUBLIC) {
+		EVP_EncodeBlock(key, iface->i_public, WG_KEY_LEN);
+		printf("\twgkey (pub) %s\n", key);
+	}
+	if (iface->i_flags & WG_INTERFACE_HAS_PRIVATE) {
+		EVP_EncodeBlock(key, iface->i_private, WG_KEY_LEN);
+		printf("\twgkey %s\n", key);
+	}
+
+	for (wg_peer = iface->i_peers; wg_peer != NULL; wg_peer = wg_peer->p_next) {
+		EVP_EncodeBlock(key, wg_peer->p_public, WG_KEY_LEN);
+		printf("\twgpeer %s\n", key);
+
+		if (wg_peer->p_flags & WG_PEER_HAS_PSK) {
+			EVP_EncodeBlock(key, wg_peer->p_psk, WG_KEY_LEN);
+			printf("\t\twgpsk %s\n", key);
+		}
+
+		if (wg_peer->p_flags & WG_PEER_HAS_PKA)
+			printf("\t\twgpka %u (sec)\n", wg_peer->p_pka);
+
+		if (wg_peer->p_flags & WG_PEER_HAS_ENDPOINT) {
+			if (getnameinfo(&wg_peer->p_sa, wg_peer->p_sa.sa_len,
+			    hbuf, sizeof(hbuf), sbuf, sizeof(sbuf),
+			    NI_NUMERICHOST | NI_NUMERICSERV) == 0)
+				printf("\t\twgpip %s %s\n", hbuf, sbuf);
+			else
+				printf("\t\twgpip unable to print\n");
+		}
+
+		printf("\t\ttx: %llu, rx: %llu\n",
+		    wg_peer->p_txbytes, wg_peer->p_rxbytes);
+
+		if (wg_peer->p_last_handshake.tv_sec != 0) {
+			timespec_get(&now, TIME_UTC);
+			printf("\t\tlast handshake: %lld seconds ago\n",
+			    now.tv_sec - wg_peer->p_last_handshake.tv_sec);
+		}
+
+		for (wg_aip = wg_peer->p_aips; wg_aip != NULL; wg_aip = wg_aip->a_next) {
+			inet_ntop(wg_aip->a_af, &wg_aip->a_addr, hbuf, sizeof(hbuf));
+			printf("\t\twgaip %s/%d\n", hbuf, wg_aip->a_cidr);
+		}
+	}
+
+	free(wgdata.wgd_mem);
+}
 
 const struct umb_valdescr umb_regstate[] = MBIM_REGSTATE_DESCRIPTIONS;
 const struct umb_valdescr umb_dataclass[] = MBIM_DATACLASS_DESCRIPTIONS;
