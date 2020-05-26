@@ -70,6 +70,7 @@
 #include "ppp.h"
 #include "pppoe.h"
 #include "switch.h"
+#include "if_wg.h"
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -2227,6 +2228,13 @@ ifioctl(struct socket *so, u_long cmd, caddr_t data, struct proc *p)
 			break;
 
 		/* don't take NET_LOCK because i2c reads take a long time */
+		error = ((*ifp->if_ioctl)(ifp, cmd, data));
+		break;
+	case SIOCSWG:
+	case SIOCGWG:
+		/* Don't take NET_LOCK to allow wg(4) to continue to send and
+		 * receive packets while we're loading a large number of
+		 * peers. */
 		error = ((*ifp->if_ioctl)(ifp, cmd, data));
 		break;
 

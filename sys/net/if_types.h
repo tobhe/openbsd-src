@@ -269,5 +269,6 @@
 #define IFT_BLUETOOTH	0xf8		/* Bluetooth */
 #define IFT_PFLOW	0xf9		/* pflow */
 #define IFT_MBIM	0xfa		/* Mobile Broadband Interface Model */
+#define IFT_WIREGUARD	0xfb		/* WireGuard tunnel */
 
 #endif /* _NET_IF_TYPES_H_ */

@@ -57,6 +57,7 @@ BEGIN {
 	print "#include <net/if_pppoe.h>"
 	print "#include <net/if_trunk.h>"
 	print "#include <net/if_tun.h>"
+	print "#include <net/if_wg.h>"
 	print "#include <net/pfvar.h>"
 	print "#include <net/pipex.h>"
 	print "#include <sys/disklabel.h>"

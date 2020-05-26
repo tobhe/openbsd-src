@@ -371,6 +371,8 @@ main(int argc, char **argv)
 				packettype = PT_MPLS;
 			else if (strcasecmp(optarg, "tftp") == 0)
 				packettype = PT_TFTP;
+			else if (strcasecmp(optarg, "wg") == 0)
+				packettype = PT_WIREGUARD;
 			else if (strcasecmp(optarg, "sack") == 0)
 				/*
 				 * kept for compatibility; DEFAULT_SNAPLEN
