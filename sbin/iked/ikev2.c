@@ -870,9 +870,6 @@ ikev2_ike_auth_recv(struct iked *env, struct iked_sa *sa,
 int
 ikev2_ike_auth(struct iked *env, struct iked_sa *sa)
 {
-	struct iked_policy	*pol = sa->sa_policy;
-	uint8_t			 certreqtype;
-
 	/* Attempt state transition */
 	if (sa->sa_state == IKEV2_STATE_EAP_SUCCESS)
 		sa_state(env, sa, IKEV2_STATE_EAP_VALID);
@@ -886,26 +883,10 @@ ikev2_ike_auth(struct iked *env, struct iked_sa *sa)
 			return (ikev2_init_ike_auth(env, sa));
 	}
 
-	/*
-	 * If we have to send a local certificate but did not receive an
-	 * optional CERTREQ, use our own certreq to find a local certificate.
-	 * We could alternatively extract the CA from the peer certificate
-	 * to find a matching local one.
-	 */
-	if (sa->sa_statevalid & IKED_REQ_CERT) {
-		if ((sa->sa_stateflags & IKED_REQ_CERTREQ) == 0) {
-			log_debug("%s: no CERTREQ, using default", __func__);
-			if (pol->pol_certreqtype)
-				certreqtype = pol->pol_certreqtype;
-			else
-				certreqtype = env->sc_certreqtype;
-			return (ca_setreq(env, sa,
-			    &pol->pol_localid, certreqtype, 0,
-			    ibuf_data(env->sc_certreq),
-			    ibuf_size(env->sc_certreq), PROC_CERT));
-		} else if ((sa->sa_stateflags & IKED_REQ_CERT) == 0)
-			return (0);	/* ignored, wait for cert */
-	}
+	/* Wait for CERT */
+	if ((sa->sa_statevalid & IKED_REQ_CERT) &&
+	    ((sa->sa_stateflags & IKED_REQ_CERT) == 0))
+		return (0);
 
 	return (ikev2_resp_ike_auth(env, sa));
 }
@@ -3005,6 +2986,7 @@ ikev2_handle_certreq(struct iked* env, struct iked_message *msg)
 {
 	struct iked_certreq	*cr;
 	struct iked_sa		*sa;
+	uint8_t			 certreqtype;
 	uint8_t more;
 
 	if ((sa = msg->msg_sa) == NULL)
@@ -3014,25 +2996,41 @@ ikev2_handle_certreq(struct iked* env, struct iked_message *msg)
 	if (sa->sa_policy->pol_auth.auth_method == IKEV2_AUTH_SHARED_KEY_MIC)
 		return (0);
 
-	while ((cr = SLIST_FIRST(&msg->msg_certreqs))) {
-		if (sa->sa_hdr.sh_initiator)
-			sa->sa_stateinit |= IKED_REQ_CERT;
+	/*
+	 * If we have to send a local certificate but did not receive an
+	 * optional CERTREQ, use our own certreq to find a local certificate.
+	 * We could alternatively extract the CA from the peer certificate
+	 * to find a matching local one.
+	 */
+	if (SLIST_EMPTY(&msg->msg_certreqs)) {
+		if (sa->sa_policy->pol_certreqtype)
+			certreqtype = sa->sa_policy->pol_certreqtype;
 		else
-			sa->sa_statevalid |= IKED_REQ_CERT;
+			certreqtype = env->sc_certreqtype;
+		ca_setreq(env, sa, &sa->sa_policy->pol_localid,
+		    certreqtype, 0, ibuf_data(env->sc_certreq),
+		    ibuf_size(env->sc_certreq), PROC_CERT);
+	} else {
+		while ((cr = SLIST_FIRST(&msg->msg_certreqs))) {
+			if (sa->sa_hdr.sh_initiator)
+				sa->sa_stateinit |= IKED_REQ_CERT;
+			else
+				sa->sa_statevalid |= IKED_REQ_CERT;
 
-		if (SLIST_NEXT(cr, cr_entry) != NULL)
-			more = 1;
-		else
-			more = 0;
+			if (SLIST_NEXT(cr, cr_entry) != NULL)
+				more = 1;
+			else
+				more = 0;
 
-		ca_setreq(env, sa, &sa->sa_policy->pol_localid, cr->cr_type,
-		    more, ibuf_data(cr->cr_data),
-		    ibuf_length(cr->cr_data),
-		    PROC_CERT);
+			ca_setreq(env, sa, &sa->sa_policy->pol_localid,
+			    cr->cr_type, more, ibuf_data(cr->cr_data),
+			    ibuf_length(cr->cr_data),
+			    PROC_CERT);
 
-		ibuf_release(cr->cr_data);
-		SLIST_REMOVE_HEAD(&msg->msg_certreqs, cr_entry);
-		free(cr);
+			ibuf_release(cr->cr_data);
+			SLIST_REMOVE_HEAD(&msg->msg_certreqs, cr_entry);
+			free(cr);
+		}
 	}
 
 	return (0);

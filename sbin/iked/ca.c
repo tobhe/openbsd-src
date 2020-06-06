@@ -334,9 +334,11 @@ ca_setreq(struct iked *env, struct iked_sa *sa,
 	iov[iovcnt].iov_base = &more;
 	iov[iovcnt].iov_len = sizeof(more);
 	iovcnt++;
-	iov[iovcnt].iov_base = data;
-	iov[iovcnt].iov_len = len;
-	iovcnt++;
+	if (data == NULL) {
+		iov[iovcnt].iov_base = data;
+		iov[iovcnt].iov_len = len;
+		iovcnt++;
+	}
 
 	if (proc_composev(&env->sc_ps, procid, IMSG_CERTREQ, iov, iovcnt) == -1)
 		goto done;
@@ -537,7 +539,8 @@ ca_getreq(struct iked *env, struct imsg *imsg)
 				break;
 			}
 		}
-
+		/* Fallthrough */
+	case IKEV2_CERT_NONE:
  fallback:
 		/*
 		 * If no certificate or key matching any of the trust-anchors
