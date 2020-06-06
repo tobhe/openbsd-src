@@ -288,9 +288,11 @@ ca_setcert(struct iked *env, struct iked_sahdr *sh, struct iked_id *id,
 	iov[iovcnt].iov_base = &type;
 	iov[iovcnt].iov_len = sizeof(type);
 	iovcnt++;
-	iov[iovcnt].iov_base = data;
-	iov[iovcnt].iov_len = len;
-	iovcnt++;
+	if (data != NULL) {
+		iov[iovcnt].iov_base = data;
+		iov[iovcnt].iov_len = len;
+		iovcnt++;
+	}
 
 	if (proc_composev(&env->sc_ps, procid, IMSG_CERT, iov, iovcnt) == -1)
 		return (-1);
@@ -447,6 +449,10 @@ ca_getcert(struct iked *env, struct imsg *imsg)
 	case IKEV2_CERT_RSA_KEY:
 	case IKEV2_CERT_ECDSA:
 		ret = ca_validate_pubkey(env, &id, ptr, len);
+		break;
+	case IKEV2_CERT_NONE:
+		/* Fallback to public key */
+		ret = ca_validate_pubkey(env, &id, NULL, 0);
 		break;
 	default:
 		log_debug("%s: unsupported cert type %d", __func__, type);
@@ -1313,9 +1319,6 @@ ca_validate_pubkey(struct iked *env, struct iked_static_id *id,
 	char		 file[PATH_MAX];
 	struct iked_id	 idp;
 
-	if (len == 0 && data == NULL)
-		return (-1);
-
 	switch (id->id_type) {
 	case IKEV2_ID_IPV4:
 	case IKEV2_ID_FQDN:
@@ -1338,10 +1341,11 @@ ca_validate_pubkey(struct iked *env, struct iked_static_id *id,
 	if (ikev2_print_id(&idp, idstr, sizeof(idstr)) == -1)
 		goto done;
 
-	if (len == 0) {
+	if (len == 0 && data) {
 		/* Data is already an public key */
 		peerkey = (EVP_PKEY *)data;
-	} else {
+	}
+	if (len > 0) {
 		if ((rawcert = BIO_new_mem_buf(data, len)) == NULL)
 			goto done;
 
@@ -1391,7 +1395,7 @@ ca_validate_pubkey(struct iked *env, struct iked_static_id *id,
 	if (localkey == NULL)
 		goto sslerr;
 
-	if (!EVP_PKEY_cmp(peerkey, localkey)) {
+	if (peerkey && !EVP_PKEY_cmp(peerkey, localkey)) {
 		log_debug("%s: public key does not match %s", __func__, file);
 		goto done;
 	}

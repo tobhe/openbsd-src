@@ -779,7 +779,9 @@ ikev2_ike_auth_recv(struct iked *env, struct iked_sa *sa,
 		    id, certid->id_type,
 		    ibuf_data(certid->id_buf),
 		    ibuf_length(certid->id_buf), PROC_CERT);
-	}
+	} else
+		ca_setcert(env, &sa->sa_hdr, id, IKEV2_CERT_NONE,
+		    NULL, 0, PROC_CERT);
 
 	if (msg->msg_auth.id_type) {
 		memcpy(&ikeauth, &policy->pol_auth, sizeof(ikeauth));
