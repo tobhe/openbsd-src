@@ -455,6 +455,7 @@ struct iked_sa {
 	struct ibuf			*sa_1stmsg;	/* for initiator AUTH */
 	struct ibuf			*sa_2ndmsg;	/* for responder AUTH */
 	struct iked_id			 sa_localauth;	/* local AUTH message */
+	struct iked_id			 sa_peerauth;	/* peer AUTH message */
 	int				 sa_sigsha2;	/* use SHA2 for signatures */
 
 	struct iked_id			 sa_iid;	/* initiator id */
