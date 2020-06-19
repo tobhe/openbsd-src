@@ -471,7 +471,7 @@ struct m_tag *m_tag_next(struct mbuf *, struct m_tag *);
 /* Packet tag types */
 #define PACKET_TAG_IPSEC_IN_DONE	0x0001  /* IPsec applied, in */
 #define PACKET_TAG_IPSEC_OUT_DONE	0x0002  /* IPsec applied, out */
-#define PACKET_TAG_GIF			0x0040  /* GIF processing done */
+#define PACKET_TAG_WIREGUARD		0x0040  /* WireGuard data */
 #define PACKET_TAG_GRE			0x0080  /* GRE processing done */
 #define PACKET_TAG_DLT			0x0100 /* data link layer type */
 #define PACKET_TAG_PF_DIVERT		0x0200 /* pf(4) diverted packet */
@@ -482,7 +482,7 @@ struct m_tag *m_tag_next(struct mbuf *, struct m_tag *);
 
 #define MTAG_BITS \
     ("\20\1IPSEC_IN_DONE\2IPSEC_OUT_DONE\3IPSEC_IN_CRYPTO_DONE" \
-    "\4IPSEC_OUT_CRYPTO_NEEDED\5IPSEC_PENDING_TDB\6BRIDGE\7GIF\10GRE\11DLT" \
+    "\4IPSEC_OUT_CRYPTO_NEEDED\5IPSEC_PENDING_TDB\6BRIDGE\7WG\10GRE\11DLT" \
     "\12PF_DIVERT\14PF_REASSEMBLED\15SRCROUTE\16TUNNEL\17CARP_BAL_IP")
 
 /*
@@ -491,7 +491,7 @@ struct m_tag *m_tag_next(struct mbuf *, struct m_tag *);
  * length for an existing packet tag type or when adding a new one that
  * has payload larger than the value below.
  */
-#define PACKET_TAG_MAXSIZE		60
+#define PACKET_TAG_MAXSIZE		80
 
 /* Detect mbufs looping in the kernel when spliced too often. */
 #define M_MAXLOOP	128
@@ -529,6 +529,7 @@ unsigned int		ml_hdatalen(struct mbuf_list *);
     { MUTEX_INITIALIZER(_ipl), MBUF_LIST_INITIALIZER(), (_maxlen), 0 }
 
 void			mq_init(struct mbuf_queue *, u_int, int);
+int			mq_push(struct mbuf_queue *, struct mbuf *);
 int			mq_enqueue(struct mbuf_queue *, struct mbuf *);
 struct mbuf *		mq_dequeue(struct mbuf_queue *);
 int			mq_enlist(struct mbuf_queue *, struct mbuf_list *);

@@ -389,6 +389,13 @@ in6_ifattach(struct ifnet *ifp)
 			return (error);
 	}
 
+	/* Interfaces that rely on strong a priori cryptographic binding of
+	 * IP addresses are incompatible with automatically assigned llv6. */
+	switch (ifp->if_type) {
+	case IFT_WIREGUARD:
+		return (0);
+	}
+
 	/* Assign a link-local address, if there's none. */
 	if (in6ifa_ifpforlinklocal(ifp, 0) == NULL) {
 		if (in6_ifattach_linklocal(ifp, NULL) != 0) {

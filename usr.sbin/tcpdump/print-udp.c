@@ -472,6 +472,9 @@ udp_print(const u_char *bp, u_int length, const void *iph)
 		case PT_TFTP:
 			tftp_print(cp, length);
 			break;
+		case PT_WIREGUARD:
+			wg_print(cp, length);
+			break;
 		}
 		return;
 	}
@@ -573,6 +576,8 @@ udp_print(const u_char *bp, u_int length, const void *iph)
 			wb_print(cp, length);
 		else if (dport == HSRP_PORT)
 			hsrp_print(cp, length);
+		else if (wg_match(cp, length))
+			wg_print(cp, length);
 		else
 			printf("udp %u", length);
 #undef ISPORT

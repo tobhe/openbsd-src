@@ -1660,6 +1660,25 @@ mq_init(struct mbuf_queue *mq, u_int maxlen, int ipl)
 }
 
 int
+mq_push(struct mbuf_queue *mq, struct mbuf *m)
+{
+	struct mbuf *dropped = NULL;
+
+	mtx_enter(&mq->mq_mtx);
+	if (mq_len(mq) >= mq->mq_maxlen) {
+		mq->mq_drops++;
+		dropped = ml_dequeue(&mq->mq_list);
+	}
+	ml_enqueue(&mq->mq_list, m);
+	mtx_leave(&mq->mq_mtx);
+
+	if (dropped)
+		m_freem(dropped);
+
+	return (dropped != NULL);
+}
+
+int
 mq_enqueue(struct mbuf_queue *mq, struct mbuf *m)
 {
 	int dropped = 0;
