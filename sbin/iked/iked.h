@@ -351,10 +351,11 @@ struct iked_id {
 #define IKED_REQ_EAPVALID	0x0040	/* EAP payload has been verified */
 #define IKED_REQ_CHILDSA	0x0080	/* Child SA initiated */
 #define IKED_REQ_INF		0x0100	/* Informational exchange initiated */
-
+#define IKED_REQ_NOTIFY_SENT	0x0200	/* notification sent to parent */
+#define IKED_REQ_NOTIFY_ACK	0x0400	/* notification acknowledged */
 #define IKED_REQ_BITS	\
     "\20\01CERT\02CERTVALID\03CERTREQ\04AUTH\05AUTHVALID\06SA\07EAPVALID" \
-    "\10CHILDSA\11INF"
+    "\10CHILDSA\11INF\12NFYS\13NFYA"
 
 TAILQ_HEAD(iked_msgqueue, iked_message);
 
@@ -431,7 +432,7 @@ struct iked_sa {
 	struct timeval			 sa_timeused;
 
 	char				*sa_tag;
-	const char			*sa_reason;	/* reason for close */
+	char			*sa_reason;	/* reason for close */
 
 	struct iked_kex			 sa_kex;
 /* XXX compat defines until everything is converted */
@@ -522,6 +523,8 @@ struct iked_sa {
 	RB_ENTRY(iked_sa)		 sa_addrpool6_entry;	/* pool entries */
 	time_t				 sa_last_recvd;
 #define IKED_IKE_SA_LAST_RECVD_TIMEOUT	 300		/* 5 minutes */
+
+	char				*sa_certdn;
 };
 RB_HEAD(iked_sas, iked_sa);
 RB_HEAD(iked_dstid_sas, iked_sa);
@@ -767,6 +770,12 @@ struct iked {
 	struct iked_addrpool6		 sc_addrpool6;
 
 	int				 sc_cert_partial_chain;
+
+	/* callback script */
+	char				*sc_aclhook;
+	uint32_t			 sc_aclhook_timeout;
+#define IKED_ACLHOOK_TIMEOUT_MAX	 (10*60)	/* 10 minutes? */
+#define IKED_ACLHOOK_TIMEOUT_DEFAULT	 10		/* 10s */
 };
 
 struct iked_socket {
@@ -839,6 +848,8 @@ int	 config_setstatic(struct iked *);
 int	 config_getstatic(struct iked *, struct imsg *);
 int	 config_setcertpartialchain(struct iked *);
 int	 config_getcertpartialchain(struct iked *, struct imsg *);
+int	 config_setaclhook(struct iked *);
+int	 config_getaclhook(struct iked *, struct imsg *);
 
 /* policy.c */
 void	 policy_init(struct iked *);
@@ -969,6 +980,8 @@ void	 ikev2_disable_rekeying(struct iked *, struct iked_sa *);
 int	 ikev2_print_id(struct iked_id *, char *, size_t);
 int	 ikev2_print_static_id(struct iked_static_id *, char *, size_t);
 
+int	 ikev2_notify_parent(struct iked *, struct iked_sa *, char *);
+char	*ikev2_get_certdn(uint8_t *, size_t);
 const char	*ikev2_ikesa_info(uint64_t, const char *msg);
 #define SPI_IH(hdr)      ikev2_ikesa_info(betoh64((hdr)->ike_ispi), NULL)
 #define SPI_SH(sh, f)    ikev2_ikesa_info((sh)->sh_ispi, (f))

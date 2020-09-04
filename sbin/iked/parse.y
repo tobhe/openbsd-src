@@ -106,6 +106,8 @@ static char		*ocsp_url = NULL;
 static long		 ocsp_tolerate = 0;
 static long		 ocsp_maxage = -1;
 static int		 cert_partial_chain = 0;
+static char		*aclhook = NULL;
+static uint32_t		 aclhook_timeout = IKED_ACLHOOK_TIMEOUT_DEFAULT;
 
 struct ipsec_xf {
 	const char	*name;
@@ -457,6 +459,7 @@ typedef struct {
 %token	TOLERATE MAXAGE
 %token	CERTPARTIALCHAIN
 %token	REQUEST
+%token	ACLHOOK
 %token	<v.string>		STRING
 %token	<v.number>		NUMBER
 %type	<v.string>		string
@@ -555,6 +558,13 @@ set		: SET ACTIVE	{ passive = 0; }
 			}
 			dpd_interval = $3;
 		}
+		| SET ACLHOOK STRING aclhook_opt {
+			if (aclhook) {
+				yyerror("aclhook already set");
+				YYERROR;
+			}
+			aclhook = $3;
+		}
 		;
 
 user		: USER STRING STRING		{
@@ -562,6 +572,16 @@ user		: USER STRING STRING		{
 				YYERROR;
 			free($2);
 			free($3);
+		}
+		;
+
+aclhook_opt: 	/* empty */			{ /* nothing */ }
+		| NUMBER {
+			if ($1 > IKED_ACLHOOK_TIMEOUT_MAX || $1 < 0) {
+				yyerror("timeout outside range");
+				YYERROR;
+			}
+			aclhook_timeout = $1;
 		}
 		;
 
@@ -1317,6 +1337,7 @@ lookup(char *s)
 {
 	/* this has to be sorted always */
 	static const struct keywords keywords[] = {
+		{ "aclhook",		ACLHOOK },
 		{ "active",		ACTIVE },
 		{ "ah",			AH },
 		{ "any",		ANY },
@@ -1767,6 +1788,8 @@ parse_config(const char *filename, struct iked *x_env)
 	dpd_interval = IKED_IKE_SA_ALIVE_TIMEOUT;
 	decouple = passive = 0;
 	ocsp_url = NULL;
+	free(aclhook);
+	aclhook = NULL;
 
 	if (env->sc_opts & IKED_OPT_PASSIVE)
 		passive = 1;
@@ -1785,6 +1808,8 @@ parse_config(const char *filename, struct iked *x_env)
 	env->sc_ocsp_tolerate = ocsp_tolerate;
 	env->sc_ocsp_maxage = ocsp_maxage;
 	env->sc_cert_partial_chain = cert_partial_chain;
+	env->sc_aclhook = aclhook;
+	env->sc_aclhook_timeout = aclhook_timeout;
 
 	if (!rules)
 		log_warnx("%s: no valid configuration rules found",

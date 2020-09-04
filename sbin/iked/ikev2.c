@@ -39,12 +39,14 @@
 #include <openssl/sha.h>
 #include <openssl/evp.h>
 #include <openssl/x509.h>
+#include <openssl/pem.h>
 
 #include "iked.h"
 #include "ikev2.h"
 #include "eap.h"
 #include "dh.h"
 #include "chap_ms.h"
+#include "job.h"
 
 void	 ikev2_info(struct iked *, int);
 void	 ikev2_info_sa(struct iked *, int, const char *, struct iked_sa *);
@@ -181,6 +183,8 @@ int	 ikev2_resp_informational(struct iked *, struct iked_sa *,
 void	ikev2_ctl_reset_id(struct iked *, struct imsg *, unsigned int);
 void	ikev2_ctl_show_sa(struct iked *);
 
+int	ikev2_ike_auth_notify_parent(struct iked *, struct iked_sa *);
+void	ikev2_notify_ack(struct iked *, uint8_t *, size_t, int);
 static struct privsep_proc procs[] = {
 	{ "parent",	PROC_PARENT,	ikev2_dispatch_parent },
 	{ "certstore",	PROC_CERT,	ikev2_dispatch_cert },
@@ -261,6 +265,13 @@ ikev2_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 		return (config_getstatic(env, imsg));
 	case IMSG_CERT_PARTIAL_CHAIN:
 		return(config_getcertpartialchain(env, imsg));
+	case IMSG_ACLHOOK_SET:
+		return (config_getaclhook(env, imsg));
+	case IMSG_ACLHOOK_OK:
+	case IMSG_ACLHOOK_FAIL:
+		ikev2_notify_ack(env, imsg->data, IMSG_DATA_SIZE(imsg),
+		    imsg->hdr.type == IMSG_ACLHOOK_OK);
+		return (0);
 	default:
 		break;
 	}
@@ -326,6 +337,9 @@ ikev2_dispatch_cert(int fd, struct privsep_proc *p, struct imsg *imsg)
 			if (sa->sa_peerauth.id_type && ikev2_auth_verify(env, sa))
 				break;
 
+			if (sa->sa_certdn != NULL)
+				free(sa->sa_certdn);
+			sa->sa_certdn = ikev2_get_certdn(ptr, len);
 			log_debug("%s: peer certificate is valid", __func__);
 			sa_stateflags(sa, IKED_REQ_CERTVALID);
 
@@ -437,8 +451,216 @@ ikev2_dispatch_control(int fd, struct privsep_proc *p, struct imsg *imsg)
 	default:
 		return (-1);
 	}
-
 	return (0);
+}
+
+void
+ikev2_notify_ack(struct iked *env, uint8_t *ptr, size_t len, int ack_ok)
+{
+	struct iked_sahdr	 sh;
+	struct iked_sa		*sa;
+
+	if (len < sizeof(sh))
+		fatalx("bad length imsg received");
+	if (ack_ok != 0 && ack_ok != 1)
+		fatalx("unexpected ack_ok");
+
+	memcpy(&sh, ptr, sizeof(sh));
+
+	/* Ignore invalid or unauthenticated SAs */
+	sa = sa_lookup(env, sh.sh_ispi, sh.sh_rspi, sh.sh_initiator);
+	if (sa == NULL || sa->sa_state < IKEV2_STATE_EAP) {
+		log_debug("%s: sa disappeared while parent notification was "
+		    "in progress", __func__);
+		return;
+	}
+
+	if (ack_ok == 1) {
+		log_debug("%s: notification ok", SPI_SA(sa, __func__));
+		sa_stateflags(sa, IKED_REQ_NOTIFY_ACK);
+
+		ikev2_ike_auth(env, sa);
+	} else {
+		log_warnx("%s: notification failure", SPI_SA(sa, __func__));
+		ikev2_send_auth_failed(env, sa);
+	}
+}
+
+/* Notify parent of valid certificate */
+int
+ikev2_notify_parent(struct iked *env, struct iked_sa *sa, char *action)
+{
+	uint32_t		 tokens_length[JOB_TOKENS];
+	struct iovec		 iov[JOB_TOKENS+2];
+	struct iked_id		*certid;
+	struct iked_addr	*addr;
+	int			 iovcnt = JOB_TOKENS+2;
+	int			 error;
+	char			 sa_addr[UINT8_MAX];
+	char			 peer_addr[UINT8_MAX];
+	char			 pol_rdomain[UINT8_MAX];
+	BIO			*rawcert = NULL;
+	BIO			*out = NULL;
+	X509			*cert = NULL;
+	BUF_MEM			*mem;
+
+	/* XXX use sa_cp ? */
+	addr = sa->sa_addrpool;
+	if (addr == NULL) {
+		snprintf(sa_addr, sizeof(sa_addr), "none");
+	} else {
+		sa_addr[sizeof(sa_addr) - 1] = '\0';
+		if (print_host((struct sockaddr *)&addr->addr, sa_addr,
+		    sizeof(sa_addr) - 1) == NULL) {
+			log_debug("%s: could not get sa_addr", __func__);
+			return (-1);
+		}
+	}
+	peer_addr[sizeof(peer_addr) - 1] = '\0';
+	if (print_host((struct sockaddr *)&sa->sa_peer.addr, peer_addr,
+	    sizeof(peer_addr) - 1) == NULL) {
+		log_debug("%s: could not get peer_addr", __func__);
+		return (-1);
+	}
+	if (sa->sa_policy) {
+		snprintf(pol_rdomain, sizeof(pol_rdomain), "%d",
+		    sa->sa_policy->pol_rdomain);
+	} else {
+		pol_rdomain[0] = '\0';
+	}
+
+	if (sa->sa_certdn && strlen(sa->sa_certdn) > UINT32_MAX) {
+		log_debug("%s: certdn too large", __func__);
+		return (-1);
+	}
+
+	if (sa->sa_reason && strlen(sa->sa_reason) > UINT32_MAX) {
+		log_debug("%s: reason too large", __func__);
+		return (-1);
+	}
+
+	/*
+	 * We need to base64 encode sa->sa_icert. We do so in two steps,
+	 * with the resulting blob in mem->data.
+	 */
+
+	if (sa->sa_hdr.sh_initiator)
+		certid = &sa->sa_rcert;
+	else
+		certid = &sa->sa_icert;
+
+	if (!certid->id_buf) {
+		log_debug("%s: no certid", __func__);
+		return (-1);
+	}
+
+	log_debug("%s: certid %s", __func__,
+	    print_map(certid->id_type, ikev2_cert_map));
+
+	switch(certid->id_type) {
+	case IKEV2_CERT_X509_CERT:
+		/* Step 1: Convert raw to X509. */
+		if ((rawcert = BIO_new_mem_buf(ibuf_data(certid->id_buf),
+		    ibuf_length(certid->id_buf))) == NULL) {
+			log_debug("%s: BIO_new_mem_buf failed", __func__);
+			return (-1);
+		}
+		if ((cert = d2i_X509_bio(rawcert, NULL)) == NULL) {
+			ca_sslerror(__func__);
+			log_debug("%s: d2i_X509_bio failed", __func__);
+			BIO_free(rawcert);
+			return (-1);
+		}
+
+		/* Step 2: Convert from X509 to base64-PEM. */
+		if ((out = BIO_new(BIO_s_mem())) == NULL) {
+			log_debug("%s: BIO_new failed", __func__);
+			BIO_free(rawcert);
+			X509_free(cert);
+			return (-1);
+		}
+		if (PEM_write_bio_X509(out, cert) == 0) {
+			log_debug("%s: PEM_write_bio_X509 failed", __func__);
+			BIO_free(rawcert);
+			BIO_free(out);
+			X509_free(cert);
+			return (-1);
+		}
+
+		BIO_get_mem_ptr(out, &mem); /* XXX can this fail? */
+		if (mem->length > UINT32_MAX) {
+			log_debug("%s: cert too large", __func__);
+			BIO_free(rawcert);
+			BIO_free(out);
+			X509_free(cert);
+			return (-1);
+		}
+		break;
+	case IKEV2_CERT_RSA_KEY:
+	case IKEV2_CERT_ECDSA:
+	default:
+		/* we could convert public key to PEM */
+		mem = NULL;
+		break;
+	}
+
+	tokens_length[0] = strlen(action);
+	tokens_length[1] = strlen(sa_addr);
+	tokens_length[2] = sa->sa_certdn ? strlen(sa->sa_certdn) : 0;
+	tokens_length[3] = sa->sa_reason ? strlen(sa->sa_reason) : 0;
+	tokens_length[4] = mem ? mem->length : 0;
+	tokens_length[5] = strlen(peer_addr);
+	tokens_length[6] = strlen(pol_rdomain);
+
+	iov[0].iov_base = &sa->sa_hdr;
+	iov[0].iov_len = sizeof(sa->sa_hdr);
+	iov[1].iov_base = &tokens_length;
+	iov[1].iov_len = sizeof(tokens_length);
+	iov[2].iov_base = action;
+	iov[2].iov_len = tokens_length[0];
+	iov[3].iov_base = sa_addr;
+	iov[3].iov_len = tokens_length[1];
+	iov[4].iov_base = sa->sa_certdn;
+	iov[4].iov_len = tokens_length[2];
+	iov[5].iov_base = sa->sa_reason;
+	iov[5].iov_len = tokens_length[3];
+	iov[6].iov_base = mem ? mem->data : NULL;
+	iov[6].iov_len = tokens_length[4];
+	iov[7].iov_base = peer_addr;
+	iov[7].iov_len = tokens_length[5];
+	iov[8].iov_base = pol_rdomain;
+	iov[8].iov_len = tokens_length[6];
+
+	error = proc_composev(&env->sc_ps, PROC_PARENT, IMSG_ACLHOOK_EXEC,
+	    iov, iovcnt);
+
+	BIO_free(rawcert);
+	BIO_free(out);
+	X509_free(cert);
+
+	return (error);
+}
+
+char *
+ikev2_get_certdn(uint8_t *ptr, size_t len)
+{
+	BIO		*rawcert = NULL;
+	X509		*cert = NULL;
+	X509_NAME	*asn1_subject;
+	char		*s = NULL;
+
+	if ((rawcert = BIO_new_mem_buf(ptr, len)) == NULL ||
+	    (cert = d2i_X509_bio(rawcert, NULL)) == NULL ||
+	    (asn1_subject = X509_get_subject_name(cert)) == NULL)
+		goto bail;
+	s = X509_NAME_oneline(asn1_subject, NULL, 0);
+bail:
+	if (cert != NULL)
+		X509_free(cert);
+	if (rawcert != NULL)
+		BIO_free(rawcert);
+
+	return (s);
 }
 
 /* try to delete established SA if no other exchange is active */
@@ -973,14 +1195,19 @@ ikev2_ike_auth(struct iked *env, struct iked_sa *sa)
 		sa_state(env, sa, IKEV2_STATE_VALID);
 
 	if (sa->sa_hdr.sh_initiator) {
-		if (sa_stateok(sa, IKEV2_STATE_AUTH_SUCCESS))
+		if (sa_stateok(sa, IKEV2_STATE_AUTH_SUCCESS)) {
+			if ((sa->sa_statevalid & IKED_REQ_NOTIFY_SENT) != 0 &&
+			    (sa->sa_stateflags & IKED_REQ_NOTIFY_SENT) == 0)
+				return (ikev2_ike_auth_notify_parent(env, sa));
 			return (ikev2_init_done(env, sa));
+		}
 		/* AUTH exchange is awaiting response from CA process, ignore */
 		else if (sa_stateok(sa, IKEV2_STATE_AUTH_REQUEST))
 			return (0);
 		else
 			return (ikev2_init_ike_auth(env, sa));
 	}
+
 	return (ikev2_resp_ike_auth(env, sa));
 }
 
@@ -3493,6 +3720,36 @@ ikev2_resp_ike_eap(struct iked *env, struct iked_sa *sa,
 }
 
 int
+ikev2_ike_auth_notify_parent(struct iked *env, struct iked_sa *sa)
+{
+	unsigned int	 require;
+
+	/* require valid state except for NOTIFY */
+	require = sa->sa_statevalid &
+	    ~(IKED_REQ_NOTIFY_SENT|IKED_REQ_NOTIFY_ACK);
+	if ((sa->sa_stateflags & require) != require) {
+		log_debug("%s: ignore, flags 0x%04x, require 0x%04x %s",
+		    __func__,
+		    (sa->sa_stateflags & require), require,
+		    print_bits(require, IKED_REQ_BITS));
+		return (0);
+	}
+	if (sa->sa_cp == IKEV2_CP_REQUEST) {
+		if (ikev2_cp_setaddr(env, sa, AF_INET) < 0 ||
+		    ikev2_cp_setaddr(env, sa, AF_INET6) < 0)
+			return (-1);
+	}
+	log_debug("%s: triggering parent notification", __func__);
+	if (ikev2_notify_parent(env, sa, "assoc") < 0) {
+		log_debug("%s: notification failed", __func__);
+		/* XXX cannot call sa_free(env, sa) if parsing msg */
+		return (-1);
+	}
+	sa->sa_stateflags |= IKED_REQ_NOTIFY_SENT;
+	return (0);
+}
+
+int
 ikev2_resp_ike_auth(struct iked *env, struct iked_sa *sa)
 {
 	struct ikev2_payload		*pld;
@@ -3509,6 +3766,9 @@ ikev2_resp_ike_auth(struct iked *env, struct iked_sa *sa)
 
 	if (sa->sa_state == IKEV2_STATE_EAP)
 		return (eap_identity_request(env, sa));
+	if ((sa->sa_statevalid & IKED_REQ_NOTIFY_SENT) != 0 &&
+	    (sa->sa_stateflags & IKED_REQ_NOTIFY_SENT) == 0)
+		return (ikev2_ike_auth_notify_parent(env, sa));
 
 	if (!sa_stateok(sa, IKEV2_STATE_VALID))
 		return (0);	/* ignore */
@@ -4335,8 +4595,11 @@ ikev2_ikesa_enable(struct iked *env, struct iked_sa *sa, struct iked_sa *nsa)
 		nsa->sa_eapid = sa->sa_eapid;
 		sa->sa_eapid = NULL;
 	}
-	log_info("%srekeyed as new IKESA %s",
-	    SPI_SA(sa, NULL), print_spi(nsa->sa_hdr.sh_ispi, 8));
+	if (sa->sa_certdn) {
+		nsa->sa_certdn = sa->sa_certdn;
+		sa->sa_certdn = NULL;
+	}
+	log_debug("%s: activating new IKE SA", __func__);
 	sa_state(env, nsa, IKEV2_STATE_ESTABLISHED);
 	ikev2_enable_timer(env, nsa);
 

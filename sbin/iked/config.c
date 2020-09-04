@@ -120,6 +120,8 @@ config_free_sa(struct iked *env, struct iked_sa *sa)
 	config_free_childsas(env, &sa->sa_childsas, NULL, NULL);
 	sa_free_flows(env, &sa->sa_flows);
 
+	if (env->sc_aclhook)
+		ikev2_notify_parent(env, sa, "free");
 	if (sa->sa_addrpool) {
 		(void)RB_REMOVE(iked_addrpool, &env->sc_addrpool, sa);
 		free(sa->sa_addrpool);
@@ -451,6 +453,23 @@ config_new_user(struct iked *env, struct iked_user *new)
 /*
  * Inter-process communication of configuration items.
  */
+
+static char *
+config_get_param(uint8_t **ptr, size_t *len, size_t expected)
+{
+	char	*param = NULL;
+
+	if (expected > *len || (param = get_string(*ptr, expected)) == NULL ||
+	    strlen(param) != expected) {
+		free(param);
+		return (NULL);
+	}
+
+	*ptr += expected;
+	*len -= expected;
+
+	return (param);
+}
 
 int
 config_setcoupled(struct iked *env, unsigned int couple)
@@ -936,6 +955,65 @@ config_getocsp(struct iked *env, struct imsg *imsg)
 	log_debug("%s: ocsp_url %s tolerate %ld maxage %ld", __func__,
 	    env->sc_ocsp_url ? env->sc_ocsp_url : "none",
 	    env->sc_ocsp_tolerate, env->sc_ocsp_maxage);
+	return (0);
+}
+
+struct config_aclhook {
+	uint32_t	ca_timeout;
+	size_t		ca_aclhook_len;
+};
+
+int
+config_setaclhook(struct iked *env)
+{
+	struct config_aclhook	 ca;
+	struct iovec		 iov[2];
+	int			 iovcnt = 2;
+
+	if (env->sc_opts & IKED_OPT_NOACTION)
+		return (0);
+
+	ca.ca_timeout = env->sc_aclhook_timeout;
+	ca.ca_aclhook_len = env->sc_aclhook ? strlen(env->sc_aclhook) : 0;
+	iov[0].iov_base = &ca;
+	iov[0].iov_len = sizeof(ca);
+	iov[1].iov_base = env->sc_aclhook;
+	iov[1].iov_len = ca.ca_aclhook_len;
+	return (proc_composev(&env->sc_ps, PROC_IKEV2, IMSG_ACLHOOK_SET,
+	    iov, iovcnt));
+}
+
+int
+config_getaclhook(struct iked *env, struct imsg *imsg)
+{
+	struct config_aclhook	 ca;
+	size_t			 len;
+	uint8_t			*ptr;
+
+	free(env->sc_aclhook);
+	env->sc_aclhook = NULL;
+
+	ptr = (uint8_t *)imsg->data;
+	len = IMSG_DATA_SIZE(imsg);
+
+	/* get header */
+	if (len < sizeof(ca))
+		fatalx("bad 'aclhook header' imsg received");
+	memcpy(&ca, ptr, sizeof(ca));
+	ptr += sizeof(ca);
+	len -= sizeof(ca);
+
+	env->sc_aclhook_timeout = ca.ca_timeout;
+
+	if ((env->sc_aclhook = config_get_param(&ptr, &len, ca.ca_aclhook_len)) == NULL)
+		fatalx("inconsistent 'aclhook header' imsg received");
+	if (strlen(env->sc_aclhook) == 0) {
+		free(env->sc_aclhook);
+		env->sc_aclhook = NULL;
+	}
+	log_debug("%s: aclhook %s timeout %u", __func__,
+	    env->sc_aclhook ? env->sc_aclhook : "none",
+	    env->sc_aclhook_timeout);
 	return (0);
 }
 
