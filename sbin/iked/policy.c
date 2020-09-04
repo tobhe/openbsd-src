@@ -422,6 +422,9 @@ sa_new(struct iked *env, uint64_t ispi, uint64_t rspi,
 		sa->sa_statevalid = sa->sa_statevalid & diff;
 	} else
 		localid = &sa->sa_rid;
+	if (env->sc_aclhook != NULL)
+		sa->sa_statevalid |=
+		    IKED_REQ_NOTIFY_SENT|IKED_REQ_NOTIFY_ACK;
 
 	if (pol != NULL &&
 	    ikev2_policy2id(&pol->pol_localid, localid, 1) != 0) {

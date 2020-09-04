@@ -36,6 +36,7 @@
 
 #include "iked.h"
 #include "ikev2.h"
+#include "job.h"
 
 __dead void usage(void);
 
@@ -43,12 +44,13 @@ void	 parent_shutdown(struct iked *);
 void	 parent_sig_handler(int, short, void *);
 int	 parent_dispatch_ca(int, struct privsep_proc *, struct imsg *);
 int	 parent_dispatch_control(int, struct privsep_proc *, struct imsg *);
+int	 parent_dispatch_ikev2(int, struct privsep_proc *, struct imsg *);
 int	 parent_configure(struct iked *);
 
 static struct privsep_proc procs[] = {
 	{ "ca",		PROC_CERT,	parent_dispatch_ca, caproc, IKED_CA },
 	{ "control",	PROC_CONTROL,	parent_dispatch_control, control },
-	{ "ikev2",	PROC_IKEV2,	NULL, ikev2 }
+	{ "ikev2",	PROC_IKEV2,	parent_dispatch_ikev2, ikev2 }
 };
 
 __dead void
@@ -174,6 +176,7 @@ main(int argc, char *argv[])
 	log_procinit("parent");
 
 	event_init();
+	job_init();
 
 	signal_set(&ps->ps_evsigint, SIGINT, parent_sig_handler, ps);
 	signal_set(&ps->ps_evsigterm, SIGTERM, parent_sig_handler, ps);
@@ -259,13 +262,15 @@ parent_configure(struct iked *env)
 	 * inet - for ocsp connect.
 	 * route - for using interfaces in iked.conf (SIOCGIFGMEMB)
 	 * sendfd - for ocsp sockets.
+	 * exec - fro aclhook
 	 */
-	if (pledge("stdio rpath proc dns inet route sendfd", NULL) == -1)
+	if (pledge("stdio rpath proc dns inet route sendfd exec", NULL) == -1)
 		fatal("pledge");
 
 	config_setstatic(env);
 	config_setcoupled(env, env->sc_decoupled ? 0 : 1);
 	config_setocsp(env);
+	config_setaclhook(env);
 	/* Must be last */
 	config_setmode(env, env->sc_passive ? 1 : 0);
 
@@ -298,6 +303,7 @@ parent_reload(struct iked *env, int reset, const char *filename)
 		config_setstatic(env);
 		config_setcoupled(env, env->sc_decoupled ? 0 : 1);
 		config_setocsp(env);
+		config_setaclhook(env);
  		/* Must be last */
 		config_setmode(env, env->sc_passive ? 1 : 0);
 	} else {
@@ -341,6 +347,12 @@ parent_sig_handler(int sig, short event, void *arg)
 			pid = waitpid(-1, &status, WNOHANG);
 			if (pid <= 0)
 				continue;
+			/*
+			 * assume it's one of our procs, and look for them
+			 * first.
+			 */
+			if (__predict_true(job_eval(pid, status) == 0))
+				continue;
 
 			fail = 0;
 			if (WIFSIGNALED(status)) {
@@ -369,6 +381,12 @@ parent_sig_handler(int sig, short event, void *arg)
 						    ps->ps_title[id], cause);
 					break;
 				}
+			/*
+			 * this can happen in case of a job_dispatch() timeout.
+			 * only die if one of the iked procs actually exited.
+			 */
+			if (id == PROC_MAX)
+				die = 0;
 
 			free(cause);
 		} while (pid > 0 || (pid == -1 && errno == EINTR));
@@ -390,6 +408,182 @@ parent_dispatch_ca(int fd, struct privsep_proc *p, struct imsg *imsg)
 	case IMSG_OCSP_FD:
 		ocsp_connect(env, imsg);
 		break;
+	default:
+		return (-1);
+	}
+
+	return (0);
+}
+
+struct iked_job {
+	struct iked	*env;
+	struct ibuf	*ibuf;
+	char		*tokens[6]; /* here to aid debugging */
+	char		*tag;
+	struct job	 j;
+	struct iked_sahdr sh;
+};
+
+static int
+parent_aclhook_fail(struct iked *env, void *ptr, uint16_t len)
+{
+	return (proc_compose(&env->sc_ps, PROC_IKEV2, IMSG_ACLHOOK_FAIL,
+	    ptr, len));
+}
+
+static int
+parent_aclhook_ok(struct iked *env, void *ptr, uint16_t len)
+{
+	return (proc_compose(&env->sc_ps, PROC_IKEV2, IMSG_ACLHOOK_OK,
+	    ptr, len));
+}
+
+static void
+parent_aclhook_callback(int timeout, int status, void *arg)
+{
+	struct iked_job	*ij = arg;
+	void		*ptr = ibuf_data(ij->ibuf);
+	uint16_t	 len = ibuf_length(ij->ibuf); /* XXX overflow */
+	int		 ok = -1;
+
+	if (timeout) {
+		log_warnx("%s: aclhook timeout (%s, %s, %s)",
+		    SPI_SH(&ij->sh, __func__),
+		    ij->tokens[0], ij->tokens[1], ij->tokens[2]);
+		job_kill(&ij->j, SIGTERM);
+	} else if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
+		ok = 0;
+
+	if (ok == -1) {
+		log_info("%s: aclhook failed (%s, %s, %s) status %d",
+		    SPI_SH(&ij->sh, __func__),
+		    ij->tokens[0], ij->tokens[1], ij->tokens[2],
+		    WIFEXITED(status) ? WEXITSTATUS(status) : -1);
+		parent_aclhook_fail(ij->env, ptr, len);
+	} else {
+		log_debug("%s: aclhook successful (%s, %s, %s)",
+		    SPI_SH(&ij->sh, __func__),
+		    ij->tokens[0], ij->tokens[1], ij->tokens[2]);
+		parent_aclhook_ok(ij->env, ptr, len);
+	}
+
+	free(ij->tokens[0]);
+	free(ij->tokens[1]);
+	free(ij->tokens[2]);
+	free(ij->tokens[3]);
+	free(ij->tokens[4]);
+	free(ij->tokens[5]);
+	free(ij->tag);
+	ibuf_free(ij->ibuf);
+	free(ij);
+}
+
+/*
+ * Parent notification that a certificate has been validated.
+ *
+ * The notification message is composed of two tokens.  These tokens are
+ * alphanumeric, with an optional '.'.
+ */
+static int
+parent_aclhook(struct iked *env, struct imsg *imsg)
+{
+	char		*tokens[JOB_TOKENS];
+	char		*tag = NULL;
+	uint32_t	 tokens_length[JOB_TOKENS];
+	uint8_t		*msgptr = imsg->data;
+	size_t		 msgsiz = IMSG_DATA_SIZE(imsg);
+	struct		 iked_sahdr sh;
+	struct		 iked_job *ij = NULL;
+	struct		 timeval tv;
+	int		 i;
+
+	if (msgsiz < sizeof(sh) + sizeof(tokens_length))
+		fatalx("bad length imsg received");
+
+	for (i = 0; i < JOB_TOKENS; i++)
+		tokens[i] = NULL;
+
+	memcpy(&sh, msgptr, sizeof(sh));
+	msgptr += sizeof(sh);
+	msgsiz -= sizeof(sh);
+
+	memcpy(&tokens_length, msgptr, sizeof(tokens_length));
+	msgptr += sizeof(tokens_length);
+	msgsiz -= sizeof(tokens_length);
+
+	for (i = 0; i < JOB_TOKENS; i++) {
+		if (msgsiz < tokens_length[i])
+			fatalx("bad length token received (%d) %zu %u", i,
+			    msgsiz, tokens_length[i]);
+		msgsiz -= tokens_length[i];
+	}
+	if (msgsiz != 0)
+		fatalx("bad length imsg received");
+
+	if ((ij = calloc(1, sizeof(*ij))) == NULL) {
+		log_warn("%s: calloc", SPI_SH(&sh, __func__));
+		goto bail;
+	}
+	memcpy(&ij->sh, &sh, sizeof(sh));
+	if ((tag = strdup(SPI_SH(&ij->sh, NULL))) == NULL) {
+		log_warn("%s: strdup", SPI_SH(&sh, __func__));
+		goto bail;
+	}
+
+	if ((ij->ibuf = ibuf_new(imsg->data, IMSG_DATA_SIZE(imsg))) == NULL) {
+		log_warnx("%s: ibuf_new", SPI_SH(&ij->sh, __func__));
+		goto bail;
+	}
+
+	for (i = 0; i < JOB_TOKENS; i++) {
+		if ((tokens[i] = calloc(tokens_length[i] + 1, sizeof(char)))
+		    == NULL) {
+			log_warn("%s: calloc", SPI_SH(&sh, __func__));
+			goto bail;
+		}
+		memcpy(tokens[i], msgptr, tokens_length[i]);
+		msgptr += tokens_length[i];
+		ij->tokens[i] = tokens[i];
+	}
+
+	/* NB: changing the order of tokens breaks the API */
+	ij->env = env;
+	ij->tag = tag;
+	if (job_set(&ij->j, JOB_TOKENS+1, env->sc_aclhook, tokens[0], tokens[1],
+	    tokens[2], tokens[3], tokens[4], tokens[5], tag, tokens[6]) < 0) {
+		log_warnx("%s: job_set", SPI_SH(&ij->sh, __func__));
+		goto bail;
+	}
+
+	tv.tv_sec = env->sc_aclhook_timeout;
+	tv.tv_usec = 0;
+
+	if (job_dispatch(&ij->j, parent_aclhook_callback, ij, &tv) < 0) {
+		log_warnx("%s: job_dispatch", SPI_SH(&ij->sh, __func__));
+		goto bail;
+	}
+
+	return (0);
+
+bail:
+	for (i = 0; i < JOB_TOKENS; i++)
+		free(tokens[i]);
+	free(tag);
+	free(ij);
+
+	return (-1);
+}
+int
+parent_dispatch_ikev2(int fd, struct privsep_proc *p, struct imsg *imsg)
+{
+	switch (imsg->hdr.type) {
+	case IMSG_ACLHOOK_EXEC:
+		if (parent_aclhook(p->p_ps->ps_env, imsg) < 0) {
+			log_debug("%s: parent_aclhook failed", __func__);
+			parent_aclhook_fail(p->p_ps->ps_env, imsg->data,
+			    IMSG_DATA_SIZE(imsg));
+		}
+		return (0);
 	default:
 		return (-1);
 	}
