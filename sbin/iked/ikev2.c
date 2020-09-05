@@ -505,7 +505,7 @@ ikev2_notify_parent(struct iked *env, struct iked_sa *sa, char *action)
 	BUF_MEM			*mem;
 
 	/* XXX use sa_cp ? */
-	addr = sa->sa_addrpool;
+	addr = sa->sa_addrpool ? sa->sa_addrpool : sa->sa_cp_addr;
 	if (addr == NULL) {
 		snprintf(sa_addr, sizeof(sa_addr), "none");
 	} else {
