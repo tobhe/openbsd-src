@@ -311,6 +311,13 @@ utpms_attach(struct device *parent, struct device *self, void *aux)
 		for (i = 0; i < nitems(utpms_devices); i++) {
 			pd = &utpms_devices[i];
 			if (product == pd->product && vendor == pd->vendor) {
+				printf(" Trackpad\n");
+				sc->sc_noise = pd->noise;
+				sc->sc_threshold = pd->threshold;
+				sc->sc_x_factor = pd->x_factor;
+				sc->sc_x_sensors = pd->x_sensors;
+				sc->sc_y_factor = pd->y_factor;
+				sc->sc_y_sensors = pd->y_sensors;
 				switch (pd->type) {
 				case FOUNTAIN:
 					printf(": Fountain");
@@ -325,13 +332,6 @@ utpms_attach(struct device *parent, struct device *self, void *aux)
 					printf(": Geyser 2");
 					break;
 				}
-				printf(" Trackpad\n");
-				sc->sc_noise = pd->noise;
-				sc->sc_threshold = pd->threshold;
-				sc->sc_x_factor = pd->x_factor;
-				sc->sc_x_sensors = pd->x_sensors;
-				sc->sc_y_factor = pd->y_factor;
-				sc->sc_y_sensors = pd->y_sensors;
 				break;
 			}
 		}
