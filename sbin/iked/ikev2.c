@@ -2240,8 +2240,7 @@ ikev2_add_cp(struct iked *env, struct iked_sa *sa, int type, struct ibuf *buf)
 		case IKEV2_CFG_INTERNAL_IP4_DHCP:
 		case IKEV2_CFG_INTERNAL_IP4_SERVER:
 			/* 4 bytes IPv4 address */
-			in4 = (ikecfg->cfg.address.addr_mask != 32 &&
-			    (ikecfg->cfg_type ==
+			in4 = ((ikecfg->cfg_type ==
 			    IKEV2_CFG_INTERNAL_IP4_ADDRESS) &&
 			    sa->sa_addrpool &&
 			    sa->sa_addrpool->addr_af == AF_INET) ?
@@ -2277,8 +2276,7 @@ ikev2_add_cp(struct iked *env, struct iked_sa *sa, int type, struct ibuf *buf)
 		case IKEV2_CFG_INTERNAL_IP6_ADDRESS:
 		case IKEV2_CFG_INTERNAL_IP6_SUBNET:
 			/* 16 bytes IPv6 address + 1 byte prefix length */
-			in6 = (ikecfg->cfg.address.addr_mask != 128 &&
-			    (ikecfg->cfg_type ==
+			in6 = ((ikecfg->cfg_type ==
 			    IKEV2_CFG_INTERNAL_IP6_ADDRESS) &&
 			    sa->sa_addrpool6 &&
 			    sa->sa_addrpool6->addr_af == AF_INET6) ?
