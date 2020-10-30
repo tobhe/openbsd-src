@@ -420,7 +420,7 @@ parent_dispatch_ca(int fd, struct privsep_proc *p, struct imsg *imsg)
 struct iked_job {
 	struct iked	*env;
 	struct ibuf	*ibuf;
-	char		*tokens[6]; /* here to aid debugging */
+	char		*tokens[JOB_TOKENS]; /* here to aid debugging */
 	char		*tag;
 	struct job	 j;
 	struct iked_sahdr sh;
@@ -447,6 +447,7 @@ parent_aclhook_callback(int timeout, int status, void *arg)
 	void		*ptr = ibuf_data(ij->ibuf);
 	uint16_t	 len = ibuf_length(ij->ibuf); /* XXX overflow */
 	int		 ok = -1;
+	int		 i;
 
 	if (timeout) {
 		log_warnx("%s: aclhook timeout (%s, %s, %s)",
@@ -469,12 +470,8 @@ parent_aclhook_callback(int timeout, int status, void *arg)
 		parent_aclhook_ok(ij->env, ptr, len);
 	}
 
-	free(ij->tokens[0]);
-	free(ij->tokens[1]);
-	free(ij->tokens[2]);
-	free(ij->tokens[3]);
-	free(ij->tokens[4]);
-	free(ij->tokens[5]);
+	for (i = 0; i < JOB_TOKENS; i++)
+		free(ij->tokens[i]);
 	free(ij->tag);
 	ibuf_free(ij->ibuf);
 	free(ij);
