@@ -2246,6 +2246,10 @@ ikev2_add_cp(struct iked *env, struct iked_sa *sa, int type, struct ibuf *buf)
 			    sa->sa_addrpool->addr_af == AF_INET) ?
 			    (struct sockaddr_in *)&sa->sa_addrpool->addr :
 			    (struct sockaddr_in *)&ikecfg->cfg.address.addr;
+			/* don't include unspecified address in request */
+			if (type == IKEV2_CP_REQUEST &&
+			    !in4->sin_addr.s_addr)
+				break;
 			cfg->cfg_length = htobe16(4);
 			if (ibuf_add(buf, &in4->sin_addr.s_addr, 4) == -1)
 				return (-1);
@@ -2282,6 +2286,10 @@ ikev2_add_cp(struct iked *env, struct iked_sa *sa, int type, struct ibuf *buf)
 			    sa->sa_addrpool6->addr_af == AF_INET6) ?
 			    (struct sockaddr_in6 *)&sa->sa_addrpool6->addr :
 			    (struct sockaddr_in6 *)&ikecfg->cfg.address.addr;
+			/* don't include unspecified address in request */
+			if (type == IKEV2_CP_REQUEST &&
+			   IN6_IS_ADDR_UNSPECIFIED(&in6->sin6_addr))
+				break;
 			cfg->cfg_length = htobe16(17);
 			if (ibuf_add(buf, &in6->sin6_addr.s6_addr, 16) == -1)
 				return (-1);
