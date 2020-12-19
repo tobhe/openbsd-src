@@ -115,7 +115,10 @@ kex_gen_client(struct ssh *ssh)
 		r = kex_c25519_keypair(kex);
 		break;
 	case KEX_KEM_SNTRUP4591761X25519_SHA512:
-		r = kex_kem_sntrup4591761x25519_keypair(kex);
+		r = kex_kem_x25519_keypair(KEM_SNTRUP4591761, kex);
+		break;
+	case KEX_KEM_SNTRUP761X25519_SHA512:
+		r = kex_kem_x25519_keypair(KEM_SNTRUP761, kex);
 		break;
 	default:
 		r = SSH_ERR_INVALID_ARGUMENT;
@@ -183,7 +186,11 @@ input_kex_gen_reply(int type, u_int32_t seq, struct ssh *ssh)
 		r = kex_c25519_dec(kex, server_blob, &shared_secret);
 		break;
 	case KEX_KEM_SNTRUP4591761X25519_SHA512:
-		r = kex_kem_sntrup4591761x25519_dec(kex, server_blob,
+		r = kex_kem_x25519_dec(KEM_SNTRUP4591761, kex, server_blob,
+		    &shared_secret);
+		break;
+	case KEX_KEM_SNTRUP761X25519_SHA512:
+		r = kex_kem_x25519_dec(KEM_SNTRUP761, kex, server_blob,
 		    &shared_secret);
 		break;
 	default:
@@ -217,8 +224,8 @@ input_kex_gen_reply(int type, u_int32_t seq, struct ssh *ssh)
 out:
 	explicit_bzero(hash, sizeof(hash));
 	explicit_bzero(kex->c25519_client_key, sizeof(kex->c25519_client_key));
-	explicit_bzero(kex->sntrup4591761_client_key,
-	    sizeof(kex->sntrup4591761_client_key));
+	explicit_bzero(kex->kem_client_key,
+	    sizeof(kex->kem_client_key));
 	sshbuf_free(server_host_key_blob);
 	free(signature);
 	sshbuf_free(tmp);
@@ -280,7 +287,11 @@ input_kex_gen_init(int type, u_int32_t seq, struct ssh *ssh)
 		    &shared_secret);
 		break;
 	case KEX_KEM_SNTRUP4591761X25519_SHA512:
-		r = kex_kem_sntrup4591761x25519_enc(kex, client_pubkey,
+		r = kex_kem_x25519_enc(KEM_SNTRUP4591761, kex, client_pubkey,
+		    &server_pubkey, &shared_secret);
+		break;
+	case KEX_KEM_SNTRUP761X25519_SHA512:
+		r = kex_kem_x25519_enc(KEM_SNTRUP761, kex, client_pubkey,
 		    &server_pubkey, &shared_secret);
 		break;
 	default:

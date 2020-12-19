@@ -49,4 +49,17 @@ int	crypto_kem_sntrup4591761_dec(unsigned char *k,
     const unsigned char *cstr, const unsigned char *sk);
 int	crypto_kem_sntrup4591761_keypair(unsigned char *pk, unsigned char *sk);
 
+#define crypto_kem_sntrup761_PUBLICKEYBYTES 1158
+#define crypto_kem_sntrup761_SECRETKEYBYTES 1763
+#define crypto_kem_sntrup761_CIPHERTEXTBYTES 1039
+#define crypto_kem_sntrup761_BYTES 32
+
+int	crypto_kem_sntrup761_enc(unsigned char *cstr, unsigned char *k,
+    const unsigned char *pk);
+int	crypto_kem_sntrup761_dec(unsigned char *k,
+    const unsigned char *cstr, const unsigned char *sk);
+int	crypto_kem_sntrup761_keypair(unsigned char *pk, unsigned char *sk);
+
+#define crypto_kem_max_SECRETKEYBYTES crypto_kem_sntrup761_SECRETKEYBYTES
+
 #endif /* crypto_api_h */
