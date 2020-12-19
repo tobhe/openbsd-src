@@ -56,6 +56,7 @@
 #define	KEX_CURVE25519_SHA256		"curve25519-sha256"
 #define	KEX_CURVE25519_SHA256_OLD	"curve25519-sha256@libssh.org"
 #define	KEX_SNTRUP4591761X25519_SHA512	"sntrup4591761x25519-sha512@tinyssh.org"
+#define	KEX_SNTRUP761X25519_SHA512	"sntrup761x25519-sha512"
 
 #define COMP_NONE	0
 /* pre-auth compression (COMP_ZLIB) is only supported in the client */
@@ -95,6 +96,7 @@ enum kex_exchange {
 	KEX_ECDH_SHA2,
 	KEX_C25519_SHA256,
 	KEX_KEM_SNTRUP4591761X25519_SHA512,
+	KEX_KEM_SNTRUP761X25519_SHA512,
 	KEX_MAX
 };
 
