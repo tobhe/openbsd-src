@@ -81,7 +81,7 @@ kex_kem_x25519_keypair(int kem, struct kex *kex)
 		goto out;
 	crypto_kems[kem].kem_keypair(cp, kex->kem_client_key);
 #ifdef DEBUG_KEXECDH
-	dump_digest("client public key %s:", crypto_kems[kem].kem_name, cp,
+	dump_digest("client public key:", cp,
 	    crypto_kems[kem].kem_publickeybytes);
 #endif
 	cp += crypto_kems[kem].kem_publickeybytes;
@@ -120,8 +120,8 @@ kex_kem_x25519_enc(int kem, struct kex *kex, const struct sshbuf *client_blob,
 	}
 	client_pub = sshbuf_ptr(client_blob);
 #ifdef DEBUG_KEXECDH
-	dump_digest("client public key %s:", crypto_kems[kem].kem_name,
-	    client_pub, crypto_kems[kem].kem_publickeybytes);
+	dump_digest("client public key kem:", client_pub,
+	    crypto_kems[kem].kem_publickeybytes);
 	dump_digest("client public key 25519:",
 	    client_pub + crypto_kems[kem].kem_publickeybytes,
 	    CURVE25519_SIZE);
