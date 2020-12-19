@@ -161,7 +161,7 @@ struct kex {
 	const EC_GROUP *ec_group;	/* ECDH */
 	u_char c25519_client_key[CURVE25519_SIZE]; /* 25519 + KEM */
 	u_char c25519_client_pubkey[CURVE25519_SIZE]; /* 25519 */
-	u_char sntrup4591761_client_key[crypto_kem_sntrup4591761_SECRETKEYBYTES]; /* KEM */
+	u_char kem_client_key[crypto_kem_max_SECRETKEYBYTES]; /* KEM */
 	struct sshbuf *client_pub;
 };
 
@@ -215,6 +215,15 @@ int	 kex_kem_sntrup4591761x25519_keypair(struct kex *);
 int	 kex_kem_sntrup4591761x25519_enc(struct kex *, const struct sshbuf *,
     struct sshbuf **, struct sshbuf **);
 int	 kex_kem_sntrup4591761x25519_dec(struct kex *, const struct sshbuf *,
+    struct sshbuf **);
+
+#define KEM_SNTRUP4591761	(0)
+#define KEM_SNTRUP761		(1)
+
+int	 kex_kem_x25519_keypair(int, struct kex *);
+int	 kex_kem_x25519_enc(int, struct kex *, const struct sshbuf *,
+    struct sshbuf **, struct sshbuf **);
+int	 kex_kem_x25519_dec(int, struct kex *, const struct sshbuf *,
     struct sshbuf **);
 
 int	 kex_dh_keygen(struct kex *);

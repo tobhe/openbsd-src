@@ -217,8 +217,8 @@ input_kex_gen_reply(int type, u_int32_t seq, struct ssh *ssh)
 out:
 	explicit_bzero(hash, sizeof(hash));
 	explicit_bzero(kex->c25519_client_key, sizeof(kex->c25519_client_key));
-	explicit_bzero(kex->sntrup4591761_client_key,
-	    sizeof(kex->sntrup4591761_client_key));
+	explicit_bzero(kex->kem_client_key,
+	    sizeof(kex->kem_client_key));
 	sshbuf_free(server_host_key_blob);
 	free(signature);
 	sshbuf_free(tmp);
