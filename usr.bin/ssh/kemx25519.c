@@ -223,7 +223,7 @@ kex_kem_x25519_dec(int kem, struct kex *kex, const struct sshbuf *server_blob,
 	if ((r = ssh_digest_buffer(kex->hash_alg, buf, hash, sizeof(hash))) != 0)
 		goto out;
 #ifdef DEBUG_KEXECDH
-	dump_digest("client kem key:", kem_key, sizeof(kem_key));
+	dump_digest("client kem key:", kem_key, crypto_kems[kem].kem_bytes);
 	dump_digest("concatenation of KEM key and ECDH shared key:",
 	    sshbuf_ptr(buf), sshbuf_len(buf));
 #endif
