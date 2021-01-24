@@ -199,6 +199,8 @@ main(int argc, char *argv[])
 
 	proc_listen(ps, procs, nitems(procs));
 
+	vroute_init(env);
+
 	if (parent_configure(env) == -1)
 		fatalx("configuration failed");
 
@@ -265,10 +267,10 @@ parent_configure(struct iked *env)
 	 * proc - run kill to terminate its children safely.
 	 * dns - for reload and ocsp connect.
 	 * inet - for ocsp connect.
-	 * route - for using interfaces in iked.conf (SIOCGIFGMEMB)
+	 * wroute - for using interfaces in iked.conf (SIOCAIFGMEMB)
 	 * sendfd - for ocsp sockets.
 	 */
-	if (pledge("stdio rpath proc dns inet route sendfd", NULL) == -1)
+	if (pledge("stdio rpath proc dns inet wroute sendfd", NULL) == -1)
 		fatal("pledge");
 
 	config_setstatic(env);
@@ -454,6 +456,14 @@ parent_dispatch_ikev2(int fd, struct privsep_proc *p, struct imsg *imsg)
 	struct iked	*env = p->p_ps->ps_env;
 
 	switch (imsg->hdr.type) {
+	case IMSG_IF_ADDADDR:
+	case IMSG_IF_DELADDR:
+		return (vroute_getaddr(env, imsg));
+	case IMSG_VROUTE_ADD:
+	case IMSG_VROUTE_DEL:
+		return (vroute_getroute(env, imsg));
+	case IMSG_VROUTE_CLONE:
+		return (vroute_getcloneroute(env, imsg));
 	case IMSG_CTL_EXIT:
 		parent_shutdown(env);
 	default:
