@@ -1615,6 +1615,7 @@ ikev2_init_done(struct iked *env, struct iked_sa *sa)
 		ikev2_enable_timer(env, sa);
 		ikev2_log_established(sa);
 		ikev2_record_dstid(env, sa);
+		sa_configure_iface(env, sa, 1);
 	}
 
 	if (ret)

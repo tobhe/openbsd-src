@@ -22,6 +22,8 @@
 #include <sys/wait.h>
 #include <sys/uio.h>
 
+#include <net/if.h>
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -43,12 +45,13 @@ void	 parent_shutdown(struct iked *);
 void	 parent_sig_handler(int, short, void *);
 int	 parent_dispatch_ca(int, struct privsep_proc *, struct imsg *);
 int	 parent_dispatch_control(int, struct privsep_proc *, struct imsg *);
+int	 parent_dispatch_ikev2(int, struct privsep_proc *, struct imsg *);
 int	 parent_configure(struct iked *);
 
 static struct privsep_proc procs[] = {
 	{ "ca",		PROC_CERT,	parent_dispatch_ca, caproc, IKED_CA },
 	{ "control",	PROC_CONTROL,	parent_dispatch_control, control },
-	{ "ikev2",	PROC_IKEV2,	NULL, ikev2 }
+	{ "ikev2",	PROC_IKEV2,	parent_dispatch_ikev2, ikev2 }
 };
 
 __dead void
@@ -198,6 +201,8 @@ main(int argc, char *argv[])
 
 	proc_listen(ps, procs, nitems(procs));
 
+	vroute_init(env);
+
 	if (parent_configure(env) == -1)
 		fatalx("configuration failed");
 
@@ -264,11 +269,13 @@ parent_configure(struct iked *env)
 	 * proc - run kill to terminate its children safely.
 	 * dns - for reload and ocsp connect.
 	 * inet - for ocsp connect.
-	 * route - for using interfaces in iked.conf (SIOCGIFGMEMB)
+	 * wroute - for using interfaces in iked.conf (SIOCGIFGMEMB)
 	 * sendfd - for ocsp sockets.
 	 */
-	if (pledge("stdio rpath proc dns inet route sendfd", NULL) == -1)
+#if 0
+	if (pledge("stdio rpath proc dns inet wroute sendfd", NULL) == -1)
 		fatal("pledge");
+#endif
 
 	config_setstatic(env);
 	config_setcoupled(env, env->sc_decoupled ? 0 : 1);
@@ -438,6 +445,54 @@ parent_dispatch_control(int fd, struct privsep_proc *p, struct imsg *imsg)
 
 		/* return 1 to let proc.c handle it locally */
 		return (1);
+	default:
+		return (-1);
+	}
+
+	return (0);
+}
+
+int
+parent_dispatch_ikev2(int fd, struct privsep_proc *p, struct imsg *imsg)
+{
+	struct iked	*env = p->p_ps->ps_env;
+	struct in_addr	 addr, mask;
+	uint8_t		*ptr;
+	size_t		 left;
+	unsigned int	 ifidx;
+	char		 ifname[IF_NAMESIZE];
+
+	switch (imsg->hdr.type) {
+	case IMSG_IF_ADDADDR4:
+	case IMSG_IF_DELADDR4:
+		ptr = imsg->data;
+		left = IMSG_DATA_SIZE(imsg);
+		if (left != sizeof(addr) + sizeof(mask) + sizeof(ifidx))
+			fatalx("bad length imsg received");
+
+		memcpy(&addr, ptr, sizeof(addr));
+		ptr += sizeof(addr);
+		left -= sizeof(addr);
+
+		memcpy(&mask, ptr, sizeof(mask));
+		ptr += sizeof(mask);
+		left -= sizeof(mask);
+
+		memcpy(&ifidx, ptr, sizeof(ifidx));
+		ptr += sizeof(ifidx);
+		left -= sizeof(ifidx);
+
+		if_indextoname(ifidx, ifname);
+
+		if (imsg->hdr.type == IMSG_IF_ADDADDR4)
+			vroute_addaddr4(env, ifname, addr, mask);
+		else
+			vroute_deladdr4(env, ifname, addr);
+		break;
+	case IMSG_VROUTE_ADD:
+		return (vroute_getaddroute(env, imsg));
+	case IMSG_VROUTE_DEL:
+		return (vroute_getdelroute(env, imsg));
 	default:
 		return (-1);
 	}
