@@ -236,6 +236,7 @@ struct iked_lifetime {
 struct iked_policy {
 	unsigned int			 pol_id;
 	char				 pol_name[IKED_ID_SIZE];
+	unsigned int			 pol_iface;
 
 #define IKED_SKIP_FLAGS			 0
 #define IKED_SKIP_AF			 1
@@ -750,6 +751,7 @@ struct iked {
 	struct event			 sc_pfkeyev;
 	uint8_t				 sc_certreqtype;
 	struct ibuf			*sc_certreq;
+	int				 sc_ioctl;
 
 	struct iked_socket		*sc_sock4[2];
 	struct iked_socket		*sc_sock6[2];
@@ -935,6 +937,10 @@ size_t	 dsa_length(struct iked_dsa *);
 int	 dsa_update(struct iked_dsa *, const void *, size_t);
 ssize_t	 dsa_sign_final(struct iked_dsa *, void *, size_t);
 ssize_t	 dsa_verify_final(struct iked_dsa *, void *, size_t);
+
+/* if.c */
+int if_addaddr4(char *, int, struct in_addr, struct in_addr);
+int if_deladdr4(char *, int, struct in_addr);
 
 /* ikev2.c */
 pid_t	 ikev2(struct privsep *, struct privsep_proc *);
