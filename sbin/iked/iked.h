@@ -153,6 +153,7 @@ struct iked_flow {
 	unsigned int			 flow_dir;	/* in/out */
 	int				 flow_rdomain;
 	struct iked_addr		 flow_prenat;
+	int				 flow_fixed;
 
 	unsigned int			 flow_loaded;	/* pfkey done */
 
@@ -751,7 +752,7 @@ struct iked {
 	struct event			 sc_pfkeyev;
 	uint8_t				 sc_certreqtype;
 	struct ibuf			*sc_certreq;
-	int				 sc_ioctl;
+	void				*sc_vroute;
 
 	struct iked_socket		*sc_sock4[2];
 	struct iked_socket		*sc_sock6[2];
@@ -938,9 +939,12 @@ int	 dsa_update(struct iked_dsa *, const void *, size_t);
 ssize_t	 dsa_sign_final(struct iked_dsa *, void *, size_t);
 ssize_t	 dsa_verify_final(struct iked_dsa *, void *, size_t);
 
-/* if.c */
-int if_addaddr4(char *, int, struct in_addr, struct in_addr);
-int if_deladdr4(char *, int, struct in_addr);
+/* vroute.c */
+void vroute_init(struct iked *);
+int vroute_addroute(struct iked *, struct imsg *);
+int vroute_delroute(struct iked *, struct imsg *);
+int vroute_addaddr4(struct iked *, char *, struct in_addr, struct in_addr);
+int vroute_deladdr4(char *, int, struct in_addr);
 
 /* ikev2.c */
 pid_t	 ikev2(struct privsep *, struct privsep_proc *);

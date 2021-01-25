@@ -201,6 +201,8 @@ main(int argc, char *argv[])
 
 	proc_listen(ps, procs, nitems(procs));
 
+	vroute_init(env);
+
 	if (parent_configure(env) == -1)
 		fatalx("configuration failed");
 
@@ -229,9 +231,6 @@ parent_configure(struct iked *env)
 
 	env->sc_pfkey = -1;
 	config_setpfkey(env, PROC_IKEV2);
-
-	if ((env->sc_ioctl = socket(AF_INET, SOCK_DGRAM, 0)) == -1)
-		fatal("%s: failed to create ioctl socket", __func__);
 
 	/* Send private and public keys to cert after forking the children */
 	if (config_setkeys(env) == -1)
@@ -482,9 +481,12 @@ parent_dispatch_ikev2(int fd, struct privsep_proc *p, struct imsg *imsg)
 
 		if_indextoname(ifidx, ifname);
 
-		if_addaddr4(ifname, env->sc_ioctl, addr, mask);
+		vroute_addaddr4(env, ifname, addr, mask);
 		break;
-	case IMSG_IF_DELADDR4:
+	case IMSG_VROUTE_ADD:
+		return (vroute_addroute(env, imsg));
+	case IMSG_VROUTE_DEL:
+		return (vroute_delroute(env, imsg));
 	default:
 		return (-1);
 	}
