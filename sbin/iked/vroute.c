@@ -35,6 +35,8 @@
 #define ROUNDUP(a)			\
     (((a) & (sizeof(long) - 1)) ? (1 + ((a) | (sizeof(long) - 1))) : (a))
 
+int vroute_setroute(struct iked *, uint8_t, struct sockaddr *, uint8_t,
+    struct sockaddr *, int);
 int vroute_getroute(struct iked *, struct imsg *, uint8_t);
 int vroute_doroute(struct iked *, int, uint8_t, struct sockaddr *,
     struct sockaddr *, struct sockaddr *);
@@ -66,6 +68,20 @@ vroute_init(struct iked *env)
 int
 vroute_setaddroute(struct iked *env, uint8_t rdomain, struct sockaddr *dst,
     uint8_t mask, struct sockaddr *ifa)
+{
+	return (vroute_setroute(env, rdomain, dst, mask, ifa, 1));
+}
+
+int
+vroute_setdelroute(struct iked *env, uint8_t rdomain, struct sockaddr *dst,
+    uint8_t mask, struct sockaddr *ifa)
+{
+	return (vroute_setroute(env, rdomain, dst, mask, ifa, 0));
+}
+
+int
+vroute_setroute(struct iked *env, uint8_t rdomain, struct sockaddr *dst,
+    uint8_t mask, struct sockaddr *ifa, int add)
 {
 	struct sockaddr_storage	 sa;
 	struct sockaddr_in	*in;
@@ -111,8 +127,8 @@ vroute_setaddroute(struct iked *env, uint8_t rdomain, struct sockaddr *dst,
 		return (-1);
 	}
 
-	return (proc_composev(&env->sc_ps, PROC_PARENT, IMSG_VROUTE_ADD,
-	    iov, iovcnt));
+	return (proc_composev(&env->sc_ps, PROC_PARENT,
+	    add ? IMSG_VROUTE_ADD : IMSG_VROUTE_DEL, iov, iovcnt));
 }
 
 int
@@ -200,13 +216,16 @@ vroute_doroute(struct iked *env, int rdomain, uint8_t type, struct sockaddr *des
 	size_t			 padlen;
 
 	bzero(&rtm, sizeof(rtm));
-	rtm.rtm_index = 0;
 	rtm.rtm_version = RTM_VERSION;
 	rtm.rtm_tableid = rdomain;
 	rtm.rtm_type = type;
 	rtm.rtm_seq = ++ivr->ivr_rtseq;
 	rtm.rtm_priority = IKED_VROUTE_PRIO;
-	rtm.rtm_flags = RTF_UP | RTF_STATIC;
+	if (type == RTM_ADD) {
+		rtm.rtm_flags = RTF_UP | RTF_STATIC;
+	} else {
+		rtm.rtm_flags = RTF_STATIC;
+	}
 	rtm.rtm_addrs = RTA_DST | RTA_GATEWAY | RTA_NETMASK;
 
 	iov[iovcnt].iov_base = &rtm;
@@ -258,7 +277,8 @@ vroute_doroute(struct iked *env, int rdomain, uint8_t type, struct sockaddr *des
 		rtm.rtm_msglen += iov[i].iov_len;
 
 	if (writev(ivr->ivr_rtsock, iov, iovcnt) == -1) {
-		if (errno != EEXIST) {
+		if ((type == RTM_ADD && errno != EEXIST) ||
+		    (type == RTM_DELETE && errno !=ESRCH)) {
 			log_warn("%s: write %d", __func__, rtm.rtm_errno);
 			return (-1);
 		}
@@ -296,8 +316,9 @@ vroute_addaddr4(struct iked *env, char *ifname, struct in_addr addr, struct in_a
 }
 
 int
-vroute_deladdr4(char *ifname, int fd, struct in_addr addr)
+vroute_deladdr4(struct iked *env, char *ifname, struct in_addr addr)
 {
+	struct iked_vroute_sc	*ivr = env->sc_vroute;
 	struct ifaliasreq	 req;
 	struct sockaddr_in	*in;
 
@@ -309,7 +330,7 @@ vroute_deladdr4(char *ifname, int fd, struct in_addr addr)
 	in->sin_len = sizeof(req.ifra_addr);
 	in->sin_addr.s_addr = addr.s_addr;
 
-	if (ioctl(fd, SIOCDIFADDR, &req) == -1) {
+	if (ioctl(ivr->ivr_iosock, SIOCDIFADDR, &req) == -1) {
 		log_warn("%s: SIOCDIFADDR %s", __func__,
 		    inet_ntoa(addr));
 		return (-1);

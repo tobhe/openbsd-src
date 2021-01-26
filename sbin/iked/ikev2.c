@@ -181,7 +181,6 @@ ssize_t	 ikev2_add_transport_mode(struct iked *, struct ibuf *,
 int	 ikev2_update_sa_addresses(struct iked *, struct iked_sa *);
 int	 ikev2_resp_informational(struct iked *, struct iked_sa *,
 	    struct iked_message *);
-int	 ikev2_configure_iface(struct iked *, struct iked_sa *);
 
 void	ikev2_ctl_reset_id(struct iked *, struct imsg *, unsigned int);
 void	ikev2_ctl_show_sa(struct iked *);
@@ -1616,7 +1615,7 @@ ikev2_init_done(struct iked *env, struct iked_sa *sa)
 		ikev2_enable_timer(env, sa);
 		ikev2_log_established(sa);
 		ikev2_record_dstid(env, sa);
-		ikev2_configure_iface(env, sa);
+		sa_configure_iface(env, sa, 1);
 	}
 
 	if (ret)
@@ -3347,62 +3346,6 @@ ikev2_add_error(struct iked *env, struct ibuf *buf, struct iked_message *msg)
 	log_debug("%s: done", __func__);
 
 	return (len);
-}
-
-int
-ikev2_configure_iface(struct iked *env, struct iked_sa *sa)
-{
-	struct sockaddr_in	*in, *cp_in;
-	struct iked_flow	*saflow;
-	struct iovec		 iov[4];
-	int			 iovcnt = 0;
-	struct in_addr 		*addr;
-	struct in_addr		 mask;
-
-	if (sa->sa_cp_addr == NULL || sa->sa_policy->pol_iface == 0)
-		return (0);
-
-	in = (struct sockaddr_in *)&sa->sa_cp_addr->addr;
-	addr = &in->sin_addr;
-	log_debug("%s: addr %s", __func__, inet_ntoa(*addr));
-	iov[0].iov_base = addr;
-	iov[0].iov_len = sizeof(*addr);
-	iovcnt++;
-
-	bzero(&mask, sizeof(mask));
-	mask.s_addr = prefixlen2mask(sa->sa_cp_addr->addr_mask);
-	log_debug("%s: mask %s", __func__, inet_ntoa(mask));
-	iov[1].iov_base = &mask;
-	iov[1].iov_len = sizeof(mask);
-	iovcnt++;
-
-	iov[2].iov_base = &sa->sa_policy->pol_iface;
-	iov[2].iov_len = sizeof(sa->sa_policy->pol_iface);
-	iovcnt++;
-
-	if(proc_composev(&env->sc_ps, PROC_PARENT, IMSG_IF_ADDADDR4,
-	    iov, iovcnt))
-		return (-1);
-
-	TAILQ_FOREACH(saflow, &sa->sa_flows, flow_entry) {
-		/* XXX: no v6 for now */
-		if (saflow->flow_src.addr_af != AF_INET)
-			continue;
-
-		in = (struct sockaddr_in *)&saflow->flow_src.addr;
-		cp_in = (struct sockaddr_in *)&sa->sa_cp_addr->addr;
-		if (in->sin_addr.s_addr != cp_in->sin_addr.s_addr)
-			continue;
-
-		if (vroute_setaddroute(env,
-		    saflow->flow_rdomain == -1 ? 0 : saflow->flow_rdomain,
-		    (struct sockaddr *)&saflow->flow_dst.addr,
-		    saflow->flow_dst.addr_mask,
-		    (struct sockaddr *)&sa->sa_cp_addr->addr))
-			return (-1);
-	}
-
-	return (0);
 }
 
 int

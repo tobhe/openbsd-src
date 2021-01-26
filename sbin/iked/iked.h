@@ -866,6 +866,7 @@ struct iked_sa *
 	    struct iked_policy *);
 void	 sa_free(struct iked *, struct iked_sa *);
 void	 sa_free_flows(struct iked *, struct iked_saflows *);
+int	 sa_configure_iface(struct iked *, struct iked_sa *, int);
 int	 sa_address(struct iked_sa *, struct iked_addr *, struct sockaddr *);
 void	 childsa_free(struct iked_childsa *);
 struct iked_childsa *
@@ -943,10 +944,12 @@ ssize_t	 dsa_verify_final(struct iked_dsa *, void *, size_t);
 void vroute_init(struct iked *);
 int vroute_setaddroute(struct iked *, uint8_t, struct sockaddr *,
     uint8_t, struct sockaddr *);
+int vroute_setdelroute(struct iked *, uint8_t, struct sockaddr *,
+    uint8_t, struct sockaddr *);
 int vroute_getaddroute(struct iked *, struct imsg *);
 int vroute_getdelroute(struct iked *, struct imsg *);
 int vroute_addaddr4(struct iked *, char *, struct in_addr, struct in_addr);
-int vroute_deladdr4(char *, int, struct in_addr);
+int vroute_deladdr4(struct iked *, char *, struct in_addr);
 
 /* ikev2.c */
 pid_t	 ikev2(struct privsep *, struct privsep_proc *);

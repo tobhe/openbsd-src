@@ -464,6 +464,7 @@ parent_dispatch_ikev2(int fd, struct privsep_proc *p, struct imsg *imsg)
 
 	switch (imsg->hdr.type) {
 	case IMSG_IF_ADDADDR4:
+	case IMSG_IF_DELADDR4:
 		ptr = imsg->data;
 		left = IMSG_DATA_SIZE(imsg);
 		if (left != sizeof(addr) + sizeof(mask) + sizeof(ifidx))
@@ -483,7 +484,10 @@ parent_dispatch_ikev2(int fd, struct privsep_proc *p, struct imsg *imsg)
 
 		if_indextoname(ifidx, ifname);
 
-		vroute_addaddr4(env, ifname, addr, mask);
+		if (imsg->hdr.type == IMSG_IF_ADDADDR4)
+			vroute_addaddr4(env, ifname, addr, mask);
+		else
+			vroute_deladdr4(env, ifname, addr);
 		break;
 	case IMSG_VROUTE_ADD:
 		return (vroute_getaddroute(env, imsg));
