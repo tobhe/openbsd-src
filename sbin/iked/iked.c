@@ -272,8 +272,10 @@ parent_configure(struct iked *env)
 	 * wroute - for using interfaces in iked.conf (SIOCGIFGMEMB)
 	 * sendfd - for ocsp sockets.
 	 */
+#if 0
 	if (pledge("stdio rpath proc dns inet wroute sendfd", NULL) == -1)
 		fatal("pledge");
+#endif
 
 	config_setstatic(env);
 	config_setcoupled(env, env->sc_decoupled ? 0 : 1);
@@ -484,9 +486,9 @@ parent_dispatch_ikev2(int fd, struct privsep_proc *p, struct imsg *imsg)
 		vroute_addaddr4(env, ifname, addr, mask);
 		break;
 	case IMSG_VROUTE_ADD:
-		return (vroute_addroute(env, imsg));
+		return (vroute_getaddroute(env, imsg));
 	case IMSG_VROUTE_DEL:
-		return (vroute_delroute(env, imsg));
+		return (vroute_getdelroute(env, imsg));
 	default:
 		return (-1);
 	}

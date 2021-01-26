@@ -24,6 +24,7 @@
 #include <netinet6/in6_var.h>
 
 #include <event.h>
+#include <errno.h>
 #include <string.h>
 #include <strings.h>
 
@@ -31,7 +32,10 @@
 
 #define IKED_VROUTE_PRIO	7
 
-int vroute_route(struct iked *, struct imsg *, uint8_t);
+#define ROUNDUP(a)			\
+    (((a) & (sizeof(long) - 1)) ? (1 + ((a) | (sizeof(long) - 1))) : (a))
+
+int vroute_getroute(struct iked *, struct imsg *, uint8_t);
 int vroute_doroute(struct iked *, int, uint8_t, struct sockaddr *,
     struct sockaddr *, struct sockaddr *);
 
@@ -54,25 +58,77 @@ vroute_init(struct iked *env)
 		fatal("%s: failed to create ioctl socket", __func__);
 
 	if ((ivr->ivr_rtsock = socket(AF_ROUTE, SOCK_RAW, AF_UNSPEC)) == -1)
-		fatal("%s: failed to create ioctl socket", __func__);
+		fatal("%s: failed to create routing socket", __func__);
 
 	env->sc_vroute = ivr;
 }
 
 int
-vroute_addroute(struct iked *env, struct imsg *imsg)
+vroute_setaddroute(struct iked *env, uint8_t rdomain, struct sockaddr *dst,
+    uint8_t mask, struct sockaddr *ifa)
 {
-	return (vroute_route(env, imsg, RTM_ADD));
+	struct sockaddr_storage	 sa;
+	struct sockaddr_in	*in;
+	struct iovec		 iov[5];
+	int			 iovcnt = 0;
+	uint8_t			 af;
+
+	if (dst->sa_family != ifa->sa_family)
+		return (-1);
+	af = dst->sa_family;
+
+	iov[iovcnt].iov_base = &af;
+	iov[iovcnt].iov_len = sizeof(af);
+	iovcnt++;
+
+	iov[iovcnt].iov_base = &rdomain;
+	iov[iovcnt].iov_len = sizeof(rdomain);
+	iovcnt++;
+
+	switch(af) {
+	case AF_INET:
+		in = (struct sockaddr_in *)dst;
+		iov[iovcnt].iov_base = in;
+		iov[iovcnt].iov_len = sizeof(*in);
+		iovcnt++;
+
+		bzero(&sa, sizeof(sa));
+		in = (struct sockaddr_in *)&sa;
+		in->sin_addr.s_addr = prefixlen2mask(mask);
+		in->sin_family = af;
+		in->sin_len = sizeof(*in);
+		iov[iovcnt].iov_base = in;
+		iov[iovcnt].iov_len = sizeof(*in);
+		iovcnt++;
+
+		in = (struct sockaddr_in *)ifa;
+		iov[iovcnt].iov_base = in;
+		iov[iovcnt].iov_len = sizeof(*in);
+		iovcnt++;
+		break;
+	case AF_INET6:
+		/* XXX: notyet */
+		return (-1);
+	}
+
+	return (proc_composev(&env->sc_ps, PROC_PARENT, IMSG_VROUTE_ADD,
+	    iov, iovcnt));
 }
 
 int
-vroute_delroute(struct iked *env, struct imsg *imsg)
+vroute_getaddroute(struct iked *env, struct imsg *imsg)
 {
-	return (vroute_route(env, imsg, RTM_DELETE));
+	return (vroute_getroute(env, imsg, RTM_ADD));
 }
 
 int
-vroute_route(struct iked *env, struct imsg *imsg, uint8_t type)
+vroute_getdelroute(struct iked *env, struct imsg *imsg)
+{
+	return (vroute_getroute(env, imsg, RTM_DELETE));
+}
+
+int
+vroute_getroute(struct iked *env, struct imsg *imsg, uint8_t type)
 {
 	uint8_t			*ptr;
 	size_t			 left;
@@ -80,8 +136,6 @@ vroute_route(struct iked *env, struct imsg *imsg, uint8_t type)
 	int			 i;
 	struct sockaddr_in	*in[3];
 	struct sockaddr_in6	*in6[3];
-
-	IMSG_SIZE_CHECK(imsg, &ptr);
 
 	ptr = (uint8_t *)imsg->data;
 	left = IMSG_DATA_SIZE(imsg);
@@ -101,18 +155,18 @@ vroute_route(struct iked *env, struct imsg *imsg, uint8_t type)
 	for (i = 0; i < 3; i++) {
 		switch(af) {
 		case AF_INET:
-			if (left < sizeof(in[i]))
+			if (left < sizeof(*in[i]))
 				return (-1);
 			in[i] = (struct sockaddr_in *)ptr;
-			ptr += sizeof(in[i]);
-			left -= sizeof(in[i]);
+			ptr += sizeof(*in[i]);
+			left -= sizeof(*in[i]);
 			break;
 		case AF_INET6:
 			if (left < sizeof(in6[i]))
 				return (-1);
 			in6[i] = (struct sockaddr_in6 *)ptr;
-			ptr += sizeof(in6[i]);
-			left -= sizeof(in6[i]);
+			ptr += sizeof(*in6[i]);
+			left -= sizeof(*in6[i]);
 			break;
 		default:
 			return (-1);
@@ -121,76 +175,95 @@ vroute_route(struct iked *env, struct imsg *imsg, uint8_t type)
 
 	if (af == AF_INET)
 		return (vroute_doroute(env, rdomain, type,
-		    (struct sockaddr *)&in[0], (struct sockaddr *)&in[1],
-		    (struct sockaddr *)&in[2]));
+		    (struct sockaddr *)in[0], (struct sockaddr *)in[1],
+		    (struct sockaddr *)in[2]));
 
 	return (vroute_doroute(env, rdomain, type,
-	    (struct sockaddr *)&in6[0], (struct sockaddr *)&in6[1],
-	    (struct sockaddr *)&in6[2]));
+	    (struct sockaddr *)in6[0], (struct sockaddr *)in6[1],
+	    (struct sockaddr *)in6[2]));
 }
 
 int
 vroute_doroute(struct iked *env, int rdomain, uint8_t type, struct sockaddr *dest,
     struct sockaddr *mask, struct sockaddr *addr)
 {
-	struct iovec		 iov[5];
+	char			 destbuf[INET_ADDRSTRLEN];
+	char			 maskbuf[INET_ADDRSTRLEN];
+	char			 gwbuf[INET_ADDRSTRLEN];
+	struct iovec		 iov[7];
 	struct rt_msghdr	 rtm;
 	struct iked_vroute_sc	*ivr = env->sc_vroute;
 	struct sockaddr_in	*in;
-	struct sockaddr_in6	*in6;
 	int			 iovcnt = 0;
+	int			 i;
+	long			 pad = 0;
+	size_t			 padlen;
 
 	bzero(&rtm, sizeof(rtm));
+	rtm.rtm_index = 0;
 	rtm.rtm_version = RTM_VERSION;
-	rtm.rtm_type = type;
 	rtm.rtm_tableid = rdomain;
+	rtm.rtm_type = type;
 	rtm.rtm_seq = ++ivr->ivr_rtseq;
 	rtm.rtm_priority = IKED_VROUTE_PRIO;
 	rtm.rtm_flags = RTF_UP | RTF_STATIC;
+	rtm.rtm_addrs = RTA_DST | RTA_GATEWAY | RTA_NETMASK;
 
-	switch(addr->sa_family) {
-	case AF_INET:
-		in = (struct sockaddr_in *)addr;
-		if (in->sin_addr.s_addr == INADDR_ANY) {
-			rtm.rtm_addrs = RTA_DST | RTA_GATEWAY | RTA_NETMASK;
-			iovcnt = 4;
-		} else {
-			rtm.rtm_addrs = RTA_DST | RTA_GATEWAY | RTA_NETMASK
-			    | RTA_IFA;
-			iovcnt = 5;
-		}
-		break;
-	case AF_INET6:
-		in6 = (struct sockaddr_in6 *)addr;
-		if (memcmp(&in6->sin6_addr, &in6addr_any, in6->sin6_len)) {
-			rtm.rtm_addrs = RTA_DST | RTA_NETMASK;
-			iovcnt = 4;
-		} else {
-			rtm.rtm_addrs = RTA_DST | RTA_NETMASK | RTA_IFA;
-			iovcnt = 5;
-		}
-		break;
-	default:
-		return (-1);
+	iov[iovcnt].iov_base = &rtm;
+	iov[iovcnt].iov_len = sizeof(rtm);
+	iovcnt++;
+
+	in = (struct sockaddr_in *)dest;
+	strlcpy(destbuf, inet_ntoa(in->sin_addr), sizeof(destbuf));
+	iov[iovcnt].iov_base = dest;
+	iov[iovcnt].iov_len = dest->sa_len;
+	iovcnt++;
+	padlen = ROUNDUP(dest->sa_len) - dest->sa_len;
+	if (padlen > 0) {
+		iov[iovcnt].iov_base = &pad;
+		iov[iovcnt].iov_len = padlen;
+		iovcnt++;
 	}
 
-	iov[0].iov_base = &rtm;
-	iov[0].iov_len = sizeof(rtm);
-	rtm.rtm_msglen = sizeof(rtm);
+	in = (struct sockaddr_in *)addr;
+	strlcpy(gwbuf, inet_ntoa(in->sin_addr), sizeof(gwbuf));
+	iov[iovcnt].iov_base = addr;
+	iov[iovcnt].iov_len = addr->sa_len;
+	iovcnt++;
+	padlen = ROUNDUP(addr->sa_len) - addr->sa_len;
+	if (padlen > 0) {
+		iov[iovcnt].iov_base = &pad;
+		iov[iovcnt].iov_len = padlen;
+		iovcnt++;
+	}
 
-	iov[1].iov_base = dest;
-	iov[1].iov_len = dest->sa_len;
-	rtm.rtm_msglen += dest->sa_len;
+	in = (struct sockaddr_in *)mask;
+	strlcpy(maskbuf, inet_ntoa(in->sin_addr), sizeof(maskbuf));
+	iov[iovcnt].iov_base = mask;
+	iov[iovcnt].iov_len = mask->sa_len;
+	iovcnt++;
+	padlen = ROUNDUP(mask->sa_len) - mask->sa_len;
+	if (padlen > 0) {
+		iov[iovcnt].iov_base = &pad;
+		iov[iovcnt].iov_len = padlen;
+		iovcnt++;
+	}
 
-	iov[2].iov_base = mask;
-	iov[2].iov_len = mask->sa_len;
-	rtm.rtm_msglen += mask->sa_len;
+	log_debug("%s: type: %s rdomain: %d dst: %s mask: %s gw: %s", __func__,
+	    type == RTM_ADD ? "RTM_ADD" :
+	    (type == RTM_DELETE ? "RTM_DELETE" : "unknown"),
+	    rdomain, destbuf, maskbuf, gwbuf);
 
-	iov[3].iov_base = addr;
-	iov[3].iov_len = addr->sa_len;
-	rtm.rtm_msglen += addr->sa_len;
+	for (i = 0; i < iovcnt; i++)
+		rtm.rtm_msglen += iov[i].iov_len;
 
-	return (writev(ivr->ivr_rtsock, iov, iovcnt));
+	if (writev(ivr->ivr_rtsock, iov, iovcnt) == -1) {
+		if (errno != EEXIST) {
+			log_warn("%s: write %d", __func__, rtm.rtm_errno);
+			return (-1);
+		}
+	}
+	return (0);
 }
 
 int

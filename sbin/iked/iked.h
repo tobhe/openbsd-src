@@ -941,8 +941,10 @@ ssize_t	 dsa_verify_final(struct iked_dsa *, void *, size_t);
 
 /* vroute.c */
 void vroute_init(struct iked *);
-int vroute_addroute(struct iked *, struct imsg *);
-int vroute_delroute(struct iked *, struct imsg *);
+int vroute_setaddroute(struct iked *, uint8_t, struct sockaddr *,
+    uint8_t, struct sockaddr *);
+int vroute_getaddroute(struct iked *, struct imsg *);
+int vroute_getdelroute(struct iked *, struct imsg *);
 int vroute_addaddr4(struct iked *, char *, struct in_addr, struct in_addr);
 int vroute_deladdr4(char *, int, struct in_addr);
 
