@@ -348,8 +348,10 @@ parent_sig_handler(int sig, short event, void *arg)
 		break;
 	case SIGTERM:
 	case SIGINT:
-		die = 1;
-		/* FALLTHROUGH */
+		log_info("%s: stopping iked", __func__);
+		config_setreset(ps->ps_env, RESET_EXIT, PROC_IKEV2);
+		config_setreset(ps->ps_env, RESET_ALL, PROC_CERT);
+		break;
 	case SIGCHLD:
 		do {
 			int len;
@@ -493,6 +495,8 @@ parent_dispatch_ikev2(int fd, struct privsep_proc *p, struct imsg *imsg)
 		return (vroute_getaddroute(env, imsg));
 	case IMSG_VROUTE_DEL:
 		return (vroute_getdelroute(env, imsg));
+	case IMSG_CTL_EXIT:
+		parent_shutdown(env);
 	default:
 		return (-1);
 	}
