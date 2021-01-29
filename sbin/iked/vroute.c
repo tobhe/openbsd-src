@@ -24,9 +24,12 @@
 #include <netinet6/in6_var.h>
 
 #include <event.h>
+#include <err.h>
 #include <errno.h>
+#include <poll.h>
 #include <string.h>
 #include <strings.h>
+#include <unistd.h>
 
 #include <iked.h>
 
@@ -37,15 +40,24 @@
 
 int vroute_setroute(struct iked *, uint8_t, struct sockaddr *, uint8_t,
     struct sockaddr *, int);
-int vroute_getroute(struct iked *, struct imsg *, uint8_t);
-int vroute_doroute(struct iked *, int, uint8_t, struct sockaddr *,
+int vroute_getroute(struct iked *, struct imsg *, uint8_t, int);
+int vroute_doroute(struct iked *, int, int, int, uint8_t, struct sockaddr *,
     struct sockaddr *, struct sockaddr *);
 
 struct iked_vroute_sc {
 	int	ivr_iosock;
 	int	ivr_rtsock;
 	int	ivr_rtseq;
+	pid_t	ivr_pid;
 };
+
+struct vroute_msg {
+	struct rt_msghdr	 vm_rtm;
+	uint8_t			 vm_space[512];
+};
+
+int vroute_process(struct iked *, int msglen, struct vroute_msg *,
+    struct sockaddr *, struct sockaddr *, struct sockaddr *);
 
 void
 vroute_init(struct iked *env)
@@ -69,19 +81,29 @@ int
 vroute_setaddroute(struct iked *env, uint8_t rdomain, struct sockaddr *dst,
     uint8_t mask, struct sockaddr *ifa)
 {
-	return (vroute_setroute(env, rdomain, dst, mask, ifa, 1));
+	return (vroute_setroute(env, rdomain, dst, mask, ifa,
+	    IMSG_VROUTE_ADD));
+}
+
+int
+vroute_setcloneroute(struct iked *env, uint8_t rdomain, struct sockaddr *dst,
+    uint8_t mask, struct sockaddr *addr)
+{
+	return (vroute_setroute(env, rdomain, dst, mask, addr,
+	    IMSG_VROUTE_CLONE));
 }
 
 int
 vroute_setdelroute(struct iked *env, uint8_t rdomain, struct sockaddr *dst,
-    uint8_t mask, struct sockaddr *ifa)
+    uint8_t mask, struct sockaddr *addr)
 {
-	return (vroute_setroute(env, rdomain, dst, mask, ifa, 0));
+	return (vroute_setroute(env, rdomain, dst, mask, addr,
+	    IMSG_VROUTE_DEL));
 }
 
 int
 vroute_setroute(struct iked *env, uint8_t rdomain, struct sockaddr *dst,
-    uint8_t mask, struct sockaddr *ifa, int add)
+    uint8_t mask, struct sockaddr *addr, int type)
 {
 	struct sockaddr_storage	 sa;
 	struct sockaddr_in	*in;
@@ -89,7 +111,7 @@ vroute_setroute(struct iked *env, uint8_t rdomain, struct sockaddr *dst,
 	int			 iovcnt = 0;
 	uint8_t			 af;
 
-	if (dst->sa_family != ifa->sa_family)
+	if (addr && dst->sa_family != addr->sa_family)
 		return (-1);
 	af = dst->sa_family;
 
@@ -108,43 +130,44 @@ vroute_setroute(struct iked *env, uint8_t rdomain, struct sockaddr *dst,
 		iov[iovcnt].iov_len = sizeof(*in);
 		iovcnt++;
 
-		bzero(&sa, sizeof(sa));
-		in = (struct sockaddr_in *)&sa;
-		in->sin_addr.s_addr = prefixlen2mask(mask);
-		in->sin_family = af;
-		in->sin_len = sizeof(*in);
-		iov[iovcnt].iov_base = in;
-		iov[iovcnt].iov_len = sizeof(*in);
-		iovcnt++;
-
-		in = (struct sockaddr_in *)ifa;
-		iov[iovcnt].iov_base = in;
-		iov[iovcnt].iov_len = sizeof(*in);
-		iovcnt++;
+		if (type != IMSG_VROUTE_CLONE) {
+			bzero(&sa, sizeof(sa));
+			in = (struct sockaddr_in *)&sa;
+			in->sin_addr.s_addr = prefixlen2mask(mask);
+			in->sin_family = af;
+			in->sin_len = sizeof(*in);
+			iov[iovcnt].iov_base = in;
+			iov[iovcnt].iov_len = sizeof(*in);
+			iovcnt++;
+			in = (struct sockaddr_in *)addr;
+			iov[iovcnt].iov_base = in;
+			iov[iovcnt].iov_len = sizeof(*in);
+			iovcnt++;
+		}
 		break;
 	case AF_INET6:
 		/* XXX: notyet */
 		return (-1);
 	}
 
-	return (proc_composev(&env->sc_ps, PROC_PARENT,
-	    add ? IMSG_VROUTE_ADD : IMSG_VROUTE_DEL, iov, iovcnt));
+	return (proc_composev(&env->sc_ps, PROC_PARENT, type, iov, iovcnt));
 }
 
 int
 vroute_getaddroute(struct iked *env, struct imsg *imsg)
 {
-	return (vroute_getroute(env, imsg, RTM_ADD));
+	return (vroute_getroute(env, imsg, RTM_ADD, RTF_UP | RTF_STATIC));
 }
 
 int
 vroute_getdelroute(struct iked *env, struct imsg *imsg)
 {
-	return (vroute_getroute(env, imsg, RTM_DELETE));
+	return (vroute_getroute(env, imsg, RTM_DELETE, RTF_STATIC));
 }
 
+
 int
-vroute_getroute(struct iked *env, struct imsg *imsg, uint8_t type)
+vroute_getroute(struct iked *env, struct imsg *imsg, uint8_t type, int flags)
 {
 	uint8_t			*ptr;
 	size_t			 left;
@@ -152,6 +175,7 @@ vroute_getroute(struct iked *env, struct imsg *imsg, uint8_t type)
 	int			 i;
 	struct sockaddr_in	*in[3];
 	struct sockaddr_in6	*in6[3];
+	int			 addrs;
 
 	ptr = (uint8_t *)imsg->data;
 	left = IMSG_DATA_SIZE(imsg);
@@ -188,45 +212,115 @@ vroute_getroute(struct iked *env, struct imsg *imsg, uint8_t type)
 			return (-1);
 		}
 	}
-
+	addrs = RTA_DST | RTA_GATEWAY | RTA_NETMASK;
 	if (af == AF_INET)
-		return (vroute_doroute(env, rdomain, type,
+		return (vroute_doroute(env, flags, addrs, rdomain, type,
 		    (struct sockaddr *)in[0], (struct sockaddr *)in[1],
 		    (struct sockaddr *)in[2]));
 
-	return (vroute_doroute(env, rdomain, type,
+	return (vroute_doroute(env, flags, addrs, rdomain, type,
 	    (struct sockaddr *)in6[0], (struct sockaddr *)in6[1],
 	    (struct sockaddr *)in6[2]));
 }
 
 int
-vroute_doroute(struct iked *env, int rdomain, uint8_t type, struct sockaddr *dest,
-    struct sockaddr *mask, struct sockaddr *addr)
+vroute_getcloneroute(struct iked *env, struct imsg *imsg)
 {
+	struct sockaddr_storage	 dest;
+	struct sockaddr_storage	 mask;
+	struct sockaddr_storage	 addr;
+	uint8_t			*ptr;
+	size_t			 left;
+	uint8_t			 af, rdomain;
+	int			 flags;
+
+	log_info("%s: called.", __func__);
+
+	ptr = (uint8_t *)imsg->data;
+	left = IMSG_DATA_SIZE(imsg);
+
+	if (left < sizeof(af))
+		return (-1);
+	af = *ptr;
+	ptr += sizeof(af);
+	left -= sizeof(af);
+
+	if (left < sizeof(rdomain))
+		return (-1);
+	rdomain = *ptr;
+	ptr += sizeof(rdomain);
+	left -= sizeof(rdomain);
+
+	bzero(&dest, sizeof(dest));
+	bzero(&mask, sizeof(mask));
+	bzero(&addr, sizeof(addr));
+
+	switch(af) {
+	case AF_INET:
+		if (left < sizeof(struct sockaddr_in))
+			return (-1);
+		memcpy(&dest, ptr, sizeof(struct sockaddr_in));;
+		ptr += sizeof(struct sockaddr_in);
+		left -= sizeof(struct sockaddr_in);
+		break;
+	case AF_INET6:
+		if (left < sizeof(struct sockaddr_in6))
+			return (-1);
+		memcpy(&dest, ptr, sizeof(struct sockaddr_in6));;
+		ptr += sizeof(struct sockaddr_in6);
+		left -= sizeof(struct sockaddr_in6);
+		break;
+	default:
+		break;
+	}
+
+	flags = RTF_UP | RTF_GATEWAY | RTF_HOST | RTF_STATIC;
+	if (vroute_doroute(env, flags, RTA_DST, rdomain, RTM_GET,
+	    (struct sockaddr *)&dest, (struct sockaddr *)&mask,
+	    (struct sockaddr *)&addr))
+		return (-1);
+
+	if (af == AF_INET) {
+		log_info("dest:");
+		log_info("%s", inet_ntoa(((struct sockaddr_in *)&dest)->sin_addr));
+		log_info("mask:");
+		log_info("%s", inet_ntoa(((struct sockaddr_in *)&mask)->sin_addr));
+		log_info("addr:");
+		log_info("%s", inet_ntoa(((struct sockaddr_in *)&addr)->sin_addr));
+	}
+
+	return (0);
+}
+
+int
+vroute_doroute(struct iked *env, int flags, int addrs, int rdomain, uint8_t type,
+    struct sockaddr *dest, struct sockaddr *mask, struct sockaddr *addr)
+{
+	struct vroute_msg	 m_rtmsg;
+	struct pollfd		 fds[1];
 	char			 destbuf[INET_ADDRSTRLEN];
 	char			 maskbuf[INET_ADDRSTRLEN];
 	char			 gwbuf[INET_ADDRSTRLEN];
+	time_t			 start_time, cur_time;
 	struct iovec		 iov[7];
-	struct rt_msghdr	 rtm;
 	struct iked_vroute_sc	*ivr = env->sc_vroute;
 	struct sockaddr_in	*in;
+	ssize_t			 len;
 	int			 iovcnt = 0;
 	int			 i;
+	int			 nfds;
 	long			 pad = 0;
 	size_t			 padlen;
 
+#define rtm m_rtmsg.vm_rtm
 	bzero(&rtm, sizeof(rtm));
 	rtm.rtm_version = RTM_VERSION;
 	rtm.rtm_tableid = rdomain;
 	rtm.rtm_type = type;
 	rtm.rtm_seq = ++ivr->ivr_rtseq;
 	rtm.rtm_priority = IKED_VROUTE_PRIO;
-	if (type == RTM_ADD) {
-		rtm.rtm_flags = RTF_UP | RTF_STATIC;
-	} else {
-		rtm.rtm_flags = RTF_STATIC;
-	}
-	rtm.rtm_addrs = RTA_DST | RTA_GATEWAY | RTA_NETMASK;
+	rtm.rtm_flags = flags;
+	rtm.rtm_addrs = addrs;
 
 	iov[iovcnt].iov_base = &rtm;
 	iov[iovcnt].iov_len = sizeof(rtm);
@@ -270,7 +364,8 @@ vroute_doroute(struct iked *env, int rdomain, uint8_t type, struct sockaddr *des
 
 	log_debug("%s: type: %s rdomain: %d dst: %s mask: %s gw: %s", __func__,
 	    type == RTM_ADD ? "RTM_ADD" :
-	    (type == RTM_DELETE ? "RTM_DELETE" : "unknown"),
+	    type == RTM_DELETE ? "RTM_DELETE" :
+	    type == RTM_GET ? "RTM_GET" : "unknown",
 	    rdomain, destbuf, maskbuf, gwbuf);
 
 	for (i = 0; i < iovcnt; i++)
@@ -278,11 +373,121 @@ vroute_doroute(struct iked *env, int rdomain, uint8_t type, struct sockaddr *des
 
 	if (writev(ivr->ivr_rtsock, iov, iovcnt) == -1) {
 		if ((type == RTM_ADD && errno != EEXIST) ||
-		    (type == RTM_DELETE && errno !=ESRCH)) {
+		    (type == RTM_DELETE && errno != ESRCH)) {
 			log_warn("%s: write %d", __func__, rtm.rtm_errno);
 			return (-1);
 		}
 	}
+
+	if (type == RTM_GET) {
+		if (time(&start_time) == -1)
+			fatal("start time");
+		do {
+			if (time(&cur_time) == -1)
+				fatal("current time");
+			fds[0].fd = ivr->ivr_rtsock;
+			fds[0].events = POLLIN;
+			nfds = poll(fds, 1, 3);
+			if (nfds == -1) {
+				if (errno == EINTR)
+					continue;
+				log_warn("%s: poll(routefd)", __func__);
+				break;
+			}
+			if ((fds[0].revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+				log_warnx("%s: routefd: ERR|HUP|NVAL", __func__);
+				break;
+			}
+			if (nfds == 0 || (fds[0].revents & POLLIN) == 0)
+				continue;
+
+			len = read(ivr->ivr_rtsock, &m_rtmsg, sizeof(m_rtmsg));
+			if (len == -1) {
+				log_warnx("%s: read(RTM_GET)", __func__);
+				return (0);
+			} else if (len == 0) {
+				log_warnx("%s: read(RTM_GET)", __func__);
+				return (0);
+			}
+			if (rtm.rtm_version == RTM_VERSION &&
+			    rtm.rtm_type == RTM_GET &&
+			    rtm.rtm_seq == ivr->ivr_rtseq &&
+			    rtm.rtm_pid == ivr->ivr_pid &&
+			    (rtm.rtm_flags & RTF_UP) == RTF_UP &&
+			    (rtm.rtm_flags & RTF_DONE) == RTF_DONE) {
+				log_info("break!");
+				break;
+			}
+		} while((cur_time - start_time) <= 3);
+		return (vroute_process(env, len, &m_rtmsg, dest, mask, addr));
+	}
+#undef rtm
+
+	return (0);
+}
+
+int
+vroute_process(struct iked *env, int msglen, struct vroute_msg *m_rtmsg,
+    struct sockaddr *dest, struct sockaddr *mask, struct sockaddr *addr)
+{
+	struct sockaddr *sa;
+	char *cp;
+	int i;
+
+#define rtm m_rtmsg->vm_rtm
+	if (rtm.rtm_version != RTM_VERSION) {
+		warnx("routing message version %u not understood",
+		    rtm.rtm_version);
+		return (-1);
+	}
+	if (rtm.rtm_msglen > msglen) {
+		warnx("message length mismatch, in packet %u, returned %d",
+		    rtm.rtm_msglen, msglen);
+		return (-1);
+	}
+	if (rtm.rtm_errno) {
+		warnx("RTM_GET: %s (errno %d)",
+		    strerror(rtm.rtm_errno), rtm.rtm_errno);
+		return (-1);
+	}
+	cp = m_rtmsg->vm_space;
+	log_info("%s: iface %d", __func__, rtm.rtm_index);
+	log_info("%s: addrs: %x", __func__, rtm.rtm_addrs);
+	log_info("%s: flags %x", __func__, rtm.rtm_flags);
+	log_info("%s: msglen %u", __func__, rtm.rtm_msglen);
+	log_info("%s: msglen - hdr %lu", __func__, rtm.rtm_msglen - sizeof(rtm));
+	if(rtm.rtm_addrs) {
+		for (i = 1; i; i <<= 1) {
+			if (i & rtm.rtm_addrs) {
+				/* XXX: IPv6 */
+				sa = (struct sockaddr *)cp;
+				log_info("%s: sa_len %u", __func__, sa->sa_len);
+				switch(i) {
+				case RTA_DST:
+					log_info("Got DST");
+					memcpy(dest, cp, sa->sa_len);
+					break;
+				case RTA_GATEWAY:
+					log_info("Got GW");
+					memcpy(addr, cp, sa->sa_len);
+					break;
+				case RTA_NETMASK:
+					log_info("Got NETMASK");
+					memcpy(mask, cp, sa->sa_len);
+					break;
+				case RTA_SRC:
+					log_info("Got SRC");
+					break;
+				case RTA_IFA:
+					log_info("Got IFA");
+					break;
+				}
+			}
+		}
+	}
+	if (dest && mask)
+		mask->sa_family = dest->sa_family;
+#undef rtm
 	return (0);
 }
 

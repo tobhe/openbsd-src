@@ -493,6 +493,8 @@ parent_dispatch_ikev2(int fd, struct privsep_proc *p, struct imsg *imsg)
 		break;
 	case IMSG_VROUTE_ADD:
 		return (vroute_getaddroute(env, imsg));
+	case IMSG_VROUTE_CLONE:
+		return (vroute_getcloneroute(env, imsg));
 	case IMSG_VROUTE_DEL:
 		return (vroute_getdelroute(env, imsg));
 	case IMSG_CTL_EXIT:

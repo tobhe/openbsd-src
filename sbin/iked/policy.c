@@ -674,9 +674,7 @@ sa_configure_iface(struct iked *env, struct iked_sa *sa, int add)
 	int			 iovcnt = 0;
 	struct in_addr 		*addr;
 	struct in_addr		 mask;
-	int			 iked_rdomain;
-
-	iked_rdomain = getrtable();
+	int			 rdomain;
 
 	if (sa->sa_cp_addr == NULL || sa->sa_policy->pol_iface == 0)
 		return (0);
@@ -701,9 +699,17 @@ sa_configure_iface(struct iked *env, struct iked_sa *sa, int add)
 	    IMSG_IF_DELADDR4, iov, iovcnt))
 		return (-1);
 
-	/* Add direct route to peer */
+	if (add) {
+		/* Add direct route to peer */
+		if (vroute_setcloneroute(env, getrtable(),
+		    (struct sockaddr *)&sa->sa_peer.addr, 0, NULL))
+			return (-1);
+	}
 
 	TAILQ_FOREACH(saflow, &sa->sa_flows, flow_entry) {
+		rdomain = saflow->flow_rdomain == -1 ?
+		    getrtable() : saflow->flow_rdomain;
+
 		/* XXX: no v6 for now */
 		if (saflow->flow_src.addr_af != AF_INET)
 			continue;
@@ -714,17 +720,13 @@ sa_configure_iface(struct iked *env, struct iked_sa *sa, int add)
 			continue;
 
 		if (add) {
-			if (vroute_setaddroute(env,
-			    saflow->flow_rdomain == -1 ?
-			    iked_rdomain : saflow->flow_rdomain,
+			if (vroute_setaddroute(env, rdomain,
 			    (struct sockaddr *)&saflow->flow_dst.addr,
 			    saflow->flow_dst.addr_mask,
 			    (struct sockaddr *)&sa->sa_cp_addr->addr))
 				return (-1);
 		} else {
-			if (vroute_setdelroute(env,
-			    saflow->flow_rdomain == -1 ?
-			    iked_rdomain : saflow->flow_rdomain,
+			if (vroute_setdelroute(env, rdomain,
 			    (struct sockaddr *)&saflow->flow_dst.addr,
 			    saflow->flow_dst.addr_mask,
 			    (struct sockaddr *)&sa->sa_cp_addr->addr))
