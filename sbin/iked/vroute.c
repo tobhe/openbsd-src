@@ -170,12 +170,11 @@ vroute_getdelroute(struct iked *env, struct imsg *imsg)
 int
 vroute_getroute(struct iked *env, struct imsg *imsg, uint8_t type, int flags)
 {
+	struct sockaddr		*sa[3];
 	uint8_t			*ptr;
 	size_t			 left;
 	uint8_t			 af, rdomain;
 	int			 i;
-	struct sockaddr_in	*in[3];
-	struct sockaddr_in6	*in6[3];
 	int			 addrs;
 
 	ptr = (uint8_t *)imsg->data;
@@ -196,32 +195,26 @@ vroute_getroute(struct iked *env, struct imsg *imsg, uint8_t type, int flags)
 	for (i = 0; i < 3; i++) {
 		switch(af) {
 		case AF_INET:
-			if (left < sizeof(*in[i]))
+			if (left < sizeof(struct sockaddr_in))
 				return (-1);
-			in[i] = (struct sockaddr_in *)ptr;
-			ptr += sizeof(*in[i]);
-			left -= sizeof(*in[i]);
+			sa[i] = (struct sockaddr *)ptr;
+			ptr += sizeof(struct sockaddr_in);
+			left -= sizeof(struct sockaddr_in);
 			break;
 		case AF_INET6:
-			if (left < sizeof(in6[i]))
+			if (left < sizeof(struct sockaddr_in6))
 				return (-1);
-			in6[i] = (struct sockaddr_in6 *)ptr;
-			ptr += sizeof(*in6[i]);
-			left -= sizeof(*in6[i]);
+			sa[i] = (struct sockaddr *)ptr;
+			ptr += sizeof(struct sockaddr_in6);
+			left -= sizeof(struct sockaddr_in6);
 			break;
 		default:
 			return (-1);
 		}
 	}
 	addrs = RTA_DST | RTA_GATEWAY | RTA_NETMASK;
-	if (af == AF_INET)
-		return (vroute_doroute(env, flags, addrs, rdomain, type,
-		    (struct sockaddr *)in[0], (struct sockaddr *)in[1],
-		    (struct sockaddr *)in[2]));
-
 	return (vroute_doroute(env, flags, addrs, rdomain, type,
-	    (struct sockaddr *)in6[0], (struct sockaddr *)in6[1],
-	    (struct sockaddr *)in6[2]));
+	    sa[0], sa[1], sa[2]));
 }
 
 int
@@ -237,7 +230,7 @@ vroute_getcloneroute(struct iked *env, struct imsg *imsg)
 	int			 flags;
 	int			 addrs;
 
-	log_info("%s: called.", __func__);
+	log_debug("%s: called.", __func__);
 
 	ptr = (uint8_t *)imsg->data;
 	left = IMSG_DATA_SIZE(imsg);
@@ -279,23 +272,14 @@ vroute_getcloneroute(struct iked *env, struct imsg *imsg)
 		break;
 	}
 
-	/* Get route to dest */
+	/* Get route to peer */
 	flags = RTF_UP | RTF_GATEWAY | RTF_HOST | RTF_STATIC;
 	if (vroute_doroute(env, flags, RTA_DST, rdomain, RTM_GET,
 	    (struct sockaddr *)&dest, (struct sockaddr *)&mask,
 	    (struct sockaddr *)&addr))
 		return (-1);
 
-	if (af == AF_INET) {
-		log_info("dest:");
-		log_info("%s", inet_ntoa(((struct sockaddr_in *)&dest)->sin_addr));
-		log_info("mask:");
-		log_info("%s", inet_ntoa(((struct sockaddr_in *)&mask)->sin_addr));
-		log_info("addr:");
-		log_info("%s", inet_ntoa(((struct sockaddr_in *)&addr)->sin_addr));
-	}
-	/* Set explicit route to dest with gateway addr*/
-
+	/* Set explicit route to peer with gateway addr*/
 	addrs = RTA_DST | RTA_GATEWAY | RTA_NETMASK;
 	return (vroute_doroute(env, flags, addrs, rdomain, RTM_ADD,
 	    dst, (struct sockaddr *)&mask, (struct sockaddr *)&addr));
@@ -386,9 +370,6 @@ vroute_doroute(struct iked *env, int flags, int addrs, int rdomain, uint8_t type
 	for (i = 0; i < iovcnt; i++)
 		rtm.rtm_msglen += iov[i].iov_len;
 
-	log_info("%s: %d", __func__, rtm.rtm_msglen);
-	log_info("%s: %d", __func__, rtm.rtm_errno);
-
 	if (writev(ivr->ivr_rtsock, iov, iovcnt) == -1) {
 		if ((type == RTM_ADD && errno != EEXIST) ||
 		    (type == RTM_DELETE && errno != ESRCH)) {
@@ -434,45 +415,26 @@ vroute_process(struct iked *env, int msglen, struct vroute_msg *m_rtmsg,
 		return (-1);
 	}
 	cp = m_rtmsg->vm_space;
-	log_info("%s: iface %d", __func__, rtm.rtm_index);
-	log_info("%s: addrs: %x", __func__, rtm.rtm_addrs);
-	log_info("%s: flags %x", __func__, rtm.rtm_flags);
-	log_info("%s: priority %d", __func__, rtm.rtm_priority);
-	log_info("%s: msglen %u", __func__, rtm.rtm_msglen);
-	log_info("%s: msglen - hdr %lu", __func__, rtm.rtm_msglen - sizeof(rtm));
 	if(rtm.rtm_addrs) {
 		for (i = 1; i; i <<= 1) {
 			if (i & rtm.rtm_addrs) {
 				/* XXX: IPv6 */
 				sa = (struct sockaddr *)cp;
-				log_info("%s: sa_len %u", __func__, sa->sa_len);
 				switch(i) {
 				case RTA_DST:
-					log_info("Got DST");
 					memcpy(dest, cp, sa->sa_len);
-					break;
-				case RTA_GATEWAY:
-					log_info("Got GW");
-					memcpy(addr, cp, sa->sa_len);
 					break;
 				case RTA_NETMASK:
-					log_info("Got NETMASK");
 					memcpy(mask, cp, sa->sa_len);
 					break;
-				case RTA_SRC:
-					log_info("Got SRC");
-					break;
-				case RTA_IFA:
-					log_info("Got IFA");
-					memcpy(dest, cp, sa->sa_len);
+				case RTA_GATEWAY:
+					memcpy(addr, cp, sa->sa_len);
 					break;
 				}
 				cp += ROUNDUP(sa->sa_len);
 			}
 		}
 	}
-	if (dest && mask)
-		mask->sa_family = dest->sa_family;
 #undef rtm
 	return (0);
 }
