@@ -43,6 +43,7 @@ int vroute_setroute(struct iked *, uint8_t, struct sockaddr *, uint8_t,
 int vroute_getroute(struct iked *, struct imsg *, uint8_t, int);
 int vroute_doroute(struct iked *, int, int, int, uint8_t, struct sockaddr *,
     struct sockaddr *, struct sockaddr *);
+int vroute_doaddr(struct iked *, char *, struct in_addr *, struct in_addr *, int);
 
 struct iked_vroute_sc {
 	int	ivr_iosock;
@@ -269,7 +270,7 @@ vroute_getcloneroute(struct iked *env, struct imsg *imsg)
 		left -= sizeof(struct sockaddr_in6);
 		break;
 	default:
-		break;
+		return (-1);
 	}
 
 	/* Get route to peer */
@@ -440,40 +441,26 @@ vroute_process(struct iked *env, int msglen, struct vroute_msg *m_rtmsg,
 }
 
 int
-vroute_addaddr4(struct iked *env, char *ifname, struct in_addr addr, struct in_addr mask)
+vroute_addaddr(struct iked *env, char *ifname, struct in_addr *addr,
+    struct in_addr *mask)
 {
-	struct ifaliasreq	 req;
-	struct iked_vroute_sc	*ivr = env->sc_vroute;
-	struct sockaddr_in	*in;
-
-	bzero(&req, sizeof(req));
-	strncpy(req.ifra_name, ifname, sizeof(req.ifra_name));
-
-	in = (struct sockaddr_in *)&req.ifra_addr;
-	in->sin_family = AF_INET;
-	in->sin_len = sizeof(req.ifra_addr);
-	in->sin_addr.s_addr = addr.s_addr;
-
-	in = (struct sockaddr_in *)&req.ifra_mask;
-	in->sin_family = AF_INET;
-	in->sin_len = sizeof(req.ifra_mask);
-	in->sin_addr.s_addr = mask.s_addr;
-
-	if (ioctl(ivr->ivr_iosock, SIOCAIFADDR, &req) == -1) {
-		log_warn("%s: SIOCAIFADDR %s", __func__,
-		    inet_ntoa(addr));
-		return (-1);
-	}
-
-	return (0);
+	return (vroute_doaddr(env, ifname, addr, mask, 1));
 }
 
 int
-vroute_deladdr4(struct iked *env, char *ifname, struct in_addr addr)
+vroute_deladdr(struct iked *env, char *ifname, struct in_addr *addr)
+{
+	return (vroute_doaddr(env, ifname, addr, NULL, 0));
+}
+
+int
+vroute_doaddr(struct iked *env, char *ifname, struct in_addr *addr,
+    struct in_addr *mask, int add)
 {
 	struct iked_vroute_sc	*ivr = env->sc_vroute;
 	struct ifaliasreq	 req;
 	struct sockaddr_in	*in;
+	unsigned long		 ioreq;
 
 	bzero(&req, sizeof(req));
 	strncpy(req.ifra_name, ifname, sizeof(req.ifra_name));
@@ -481,11 +468,19 @@ vroute_deladdr4(struct iked *env, char *ifname, struct in_addr addr)
 	in = (struct sockaddr_in *)&req.ifra_addr;
 	in->sin_family = AF_INET;
 	in->sin_len = sizeof(req.ifra_addr);
-	in->sin_addr.s_addr = addr.s_addr;
+	in->sin_addr.s_addr = addr->s_addr;
 
-	if (ioctl(ivr->ivr_iosock, SIOCDIFADDR, &req) == -1) {
-		log_warn("%s: SIOCDIFADDR %s", __func__,
-		    inet_ntoa(addr));
+	if (add) {
+		in = (struct sockaddr_in *)&req.ifra_mask;
+		in->sin_family = AF_INET;
+		in->sin_len = sizeof(req.ifra_mask);
+		in->sin_addr.s_addr = mask->s_addr;
+	}
+
+	ioreq = add ? SIOCAIFADDR : SIOCDIFADDR;
+	if (ioctl(ivr->ivr_iosock, ioreq, &req) == -1) {
+		log_warn("%s: req: %lu, %s", __func__, ioreq,
+		    inet_ntoa(*addr));
 		return (-1);
 	}
 
