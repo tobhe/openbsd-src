@@ -22,6 +22,7 @@
 #include <net/route.h>
 #include <netinet/in.h>
 #include <netinet6/in6_var.h>
+#include <netinet6/nd6.h>
 
 #include <event.h>
 #include <err.h>
@@ -30,6 +31,7 @@
 #include <string.h>
 #include <strings.h>
 #include <unistd.h>
+#include <netdb.h>
 
 #include <iked.h>
 
@@ -47,6 +49,7 @@ int vroute_doaddr(struct iked *, char *, struct sockaddr *, struct sockaddr *, i
 
 struct iked_vroute_sc {
 	int	ivr_iosock;
+	int	ivr_iosock6;
 	int	ivr_rtsock;
 	int	ivr_rtseq;
 	pid_t	ivr_pid;
@@ -70,6 +73,9 @@ vroute_init(struct iked *env)
 		fatal("%s: calloc.", __func__);
 
 	if ((ivr->ivr_iosock = socket(AF_INET, SOCK_DGRAM, 0)) == -1)
+		fatal("%s: failed to create ioctl socket", __func__);
+
+	if ((ivr->ivr_iosock6 = socket(AF_INET6, SOCK_DGRAM, 0)) == -1)
 		fatal("%s: failed to create ioctl socket", __func__);
 
 	if ((ivr->ivr_rtsock = socket(AF_ROUTE, SOCK_RAW, AF_UNSPEC)) == -1)
@@ -498,31 +504,54 @@ vroute_doaddr(struct iked *env, char *ifname, struct sockaddr *addr,
 {
 	struct iked_vroute_sc	*ivr = env->sc_vroute;
 	struct ifaliasreq	 req;
+	struct in6_aliasreq	 req6;
 	unsigned long		 ioreq;
 	int			 af;
-
-	bzero(&req, sizeof(req));
-	strncpy(req.ifra_name, ifname, sizeof(req.ifra_name));
+	char			 addr_buf[NI_MAXHOST];
+	char			 mask_buf[NI_MAXHOST];
 
 	af = addr->sa_family;
 	switch (af) {
 	case AF_INET:
+		bzero(&req, sizeof(req));
+		strncpy(req.ifra_name, ifname, sizeof(req.ifra_name));
+		memcpy(&req.ifra_addr, addr, sizeof(req.ifra_addr));
+		if (add)
+			memcpy(&req.ifra_mask, mask, sizeof(req.ifra_addr));
+
 		ioreq = add ? SIOCAIFADDR : SIOCDIFADDR;
+		if (ioctl(ivr->ivr_iosock, ioreq, &req) == -1) {
+			log_warn("%s: req: %lu", __func__, ioreq);
+			return (-1);
+		}
 		break;
 	case AF_INET6:
+		bzero(&req6, sizeof(req6));
+		strncpy(req6.ifra_name, ifname, sizeof(req6.ifra_name));
+
+		memcpy(&req6.ifra_addr, addr, sizeof(req6.ifra_addr));
+		if (add)
+			memcpy(&req6.ifra_prefixmask, mask,
+			    sizeof(req6.ifra_prefixmask));
+
+		req6.ifra_prefixmask.sin6_scope_id = 0;
+		req6.ifra_lifetime.ia6t_pltime = ND6_INFINITE_LIFETIME;
+		req6.ifra_lifetime.ia6t_vltime = ND6_INFINITE_LIFETIME;
+
+		inet_ntop(af, &((struct sockaddr_in6 *)addr)->sin6_addr,
+		    addr_buf, sizeof(addr_buf));
+		inet_ntop(af, &((struct sockaddr_in6 *)mask)->sin6_addr,
+		    mask_buf, sizeof(mask_buf));
+		log_debug("%s: %s inet6 %s netmask %s", __func__,
+		    add ? "add" : "del",addr_buf, mask_buf);
+
 		ioreq = add ? SIOCAIFADDR_IN6 : SIOCDIFADDR_IN6;
+		if (ioctl(ivr->ivr_iosock6, ioreq, &req6) == -1) {
+			log_warn("%s: req: %lu", __func__, ioreq);
+			return (-1);
+		}
 		break;
 	default:
-		return (-1);
-	}
-
-	memcpy(&req.ifra_addr, addr, addr->sa_len);
-
-	if (add)
-		memcpy(&req.ifra_mask, mask, mask->sa_len);
-
-	if (ioctl(ivr->ivr_iosock, ioreq, &req) == -1) {
-		log_warn("%s: req: %lu", __func__, ioreq);
 		return (-1);
 	}
 

@@ -671,34 +671,68 @@ sa_configure_iface(struct iked *env, struct iked_sa *sa, int add)
 	struct sockaddr_in	*in, *cp_in;
 	struct iked_flow	*saflow;
 	struct iovec		 iov[4];
-	int			 iovcnt = 0;
+	int			 iovcnt;
 	struct sockaddr_in	*addr;
 	struct sockaddr_in	 mask;
+	struct sockaddr_in6	*addr6;
+	struct sockaddr_in6	 mask6;
 	int			 rdomain;
 
-	if (sa->sa_cp_addr == NULL || sa->sa_policy->pol_iface == 0)
+	if (sa->sa_policy->pol_iface == 0)
 		return (0);
 
-	addr = (struct sockaddr_in *)&sa->sa_cp_addr->addr;
-	iov[0].iov_base = addr;
-	iov[0].iov_len = sizeof(*addr);
-	iovcnt++;
+	if (sa->sa_cp_addr) {
+		iovcnt = 0;
+		addr = (struct sockaddr_in *)&sa->sa_cp_addr->addr;
+		iov[0].iov_base = addr;
+		iov[0].iov_len = sizeof(*addr);
+		iovcnt++;
 
-	bzero(&mask, sizeof(mask));
-	mask.sin_addr.s_addr = prefixlen2mask(sa->sa_cp_addr->addr_mask);
-	mask.sin_family = AF_INET;
-	mask.sin_len = sizeof(mask);
-	iov[1].iov_base = &mask;
-	iov[1].iov_len = sizeof(mask);
-	iovcnt++;
+		bzero(&mask, sizeof(mask));
+		mask.sin_addr.s_addr =
+		    prefixlen2mask(sa->sa_cp_addr->addr_mask ?
+		    sa->sa_cp_addr->addr_mask : 32);
+		mask.sin_family = AF_INET;
+		mask.sin_len = sizeof(mask);
+		iov[1].iov_base = &mask;
+		iov[1].iov_len = sizeof(mask);
+		iovcnt++;
 
-	iov[2].iov_base = &sa->sa_policy->pol_iface;
-	iov[2].iov_len = sizeof(sa->sa_policy->pol_iface);
-	iovcnt++;
+		iov[2].iov_base = &sa->sa_policy->pol_iface;
+		iov[2].iov_len = sizeof(sa->sa_policy->pol_iface);
+		iovcnt++;
 
-	if(proc_composev(&env->sc_ps, PROC_PARENT, add ? IMSG_IF_ADDADDR :
-	    IMSG_IF_DELADDR, iov, iovcnt))
-		return (-1);
+		if(proc_composev(&env->sc_ps, PROC_PARENT,
+		    add ? IMSG_IF_ADDADDR : IMSG_IF_DELADDR,
+		    iov, iovcnt))
+			return (-1);
+	}
+	if (sa->sa_cp_addr6) {
+		iovcnt = 0;
+		addr6 = (struct sockaddr_in6 *)&sa->sa_cp_addr6->addr;
+		iov[0].iov_base = addr6;
+		iov[0].iov_len = sizeof(*addr6);
+		iovcnt++;
+
+		bzero(&mask6, sizeof(mask6));
+		prefixlen2mask6(sa->sa_cp_addr6->addr_mask ?
+		    sa->sa_cp_addr6->addr_mask : 128,
+		    (uint32_t *)&mask6.sin6_addr.s6_addr);
+		mask6.sin6_family = AF_INET6;
+		mask6.sin6_len = sizeof(mask6);
+		iov[1].iov_base = &mask6;
+		iov[1].iov_len = sizeof(mask6);
+		iovcnt++;
+
+		iov[2].iov_base = &sa->sa_policy->pol_iface;
+		iov[2].iov_len = sizeof(sa->sa_policy->pol_iface);
+		iovcnt++;
+
+		if(proc_composev(&env->sc_ps, PROC_PARENT,
+		    add ? IMSG_IF_ADDADDR : IMSG_IF_DELADDR,
+		    iov, iovcnt))
+			return (-1);
+	}
 
 	if (add) {
 		/* Add direct route to peer */
