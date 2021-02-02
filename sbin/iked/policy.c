@@ -672,21 +672,22 @@ sa_configure_iface(struct iked *env, struct iked_sa *sa, int add)
 	struct iked_flow	*saflow;
 	struct iovec		 iov[4];
 	int			 iovcnt = 0;
-	struct in_addr 		*addr;
-	struct in_addr		 mask;
+	struct sockaddr_in	*addr;
+	struct sockaddr_in	 mask;
 	int			 rdomain;
 
 	if (sa->sa_cp_addr == NULL || sa->sa_policy->pol_iface == 0)
 		return (0);
 
-	in = (struct sockaddr_in *)&sa->sa_cp_addr->addr;
-	addr = &in->sin_addr;
+	addr = (struct sockaddr_in *)&sa->sa_cp_addr->addr;
 	iov[0].iov_base = addr;
 	iov[0].iov_len = sizeof(*addr);
 	iovcnt++;
 
 	bzero(&mask, sizeof(mask));
-	mask.s_addr = prefixlen2mask(sa->sa_cp_addr->addr_mask);
+	mask.sin_addr.s_addr = prefixlen2mask(sa->sa_cp_addr->addr_mask);
+	mask.sin_family = AF_INET;
+	mask.sin_len = sizeof(mask);
 	iov[1].iov_base = &mask;
 	iov[1].iov_len = sizeof(mask);
 	iovcnt++;
@@ -695,8 +696,8 @@ sa_configure_iface(struct iked *env, struct iked_sa *sa, int add)
 	iov[2].iov_len = sizeof(sa->sa_policy->pol_iface);
 	iovcnt++;
 
-	if(proc_composev(&env->sc_ps, PROC_PARENT, add ? IMSG_IF_ADDADDR4 :
-	    IMSG_IF_DELADDR4, iov, iovcnt))
+	if(proc_composev(&env->sc_ps, PROC_PARENT, add ? IMSG_IF_ADDADDR :
+	    IMSG_IF_DELADDR, iov, iovcnt))
 		return (-1);
 
 	if (add) {

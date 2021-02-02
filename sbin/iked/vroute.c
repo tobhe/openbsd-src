@@ -81,6 +81,44 @@ vroute_init(struct iked *env)
 }
 
 int
+vroute_getaddr(struct iked *env, struct imsg *imsg)
+{
+	char			 ifname[IF_NAMESIZE];
+	struct sockaddr_in	*addr, *mask;
+	uint8_t			*ptr;
+	size_t			 left;
+	int			 af;
+	unsigned int		 ifidx;
+
+	ptr = imsg->data;
+	left = IMSG_DATA_SIZE(imsg);
+	if (left != sizeof(*addr) + sizeof(*mask) + sizeof(ifidx))
+		fatalx("bad length imsg received");
+
+	addr = (struct sockaddr_in *) ptr;
+	af = addr->sin_family;
+	ptr += sizeof(*addr);
+	left -= sizeof(*addr);
+
+	mask = (struct sockaddr_in *) ptr;
+	if (mask->sin_family != af)
+		return (-1);
+	ptr += sizeof(*mask);
+	left -= sizeof(*mask);
+
+	memcpy(&ifidx, ptr, sizeof(ifidx));
+	ptr += sizeof(ifidx);
+	left -= sizeof(ifidx);
+
+	if_indextoname(ifidx, ifname);
+
+	if (imsg->hdr.type == IMSG_IF_ADDADDR)
+		return (vroute_addaddr(env, ifname, &addr->sin_addr, &mask->sin_addr));
+	else
+		return (vroute_deladdr(env, ifname, &addr->sin_addr));
+}
+
+int
 vroute_setaddroute(struct iked *env, uint8_t rdomain, struct sockaddr *dst,
     uint8_t mask, struct sockaddr *ifa)
 {

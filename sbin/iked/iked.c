@@ -457,40 +457,12 @@ parent_dispatch_control(int fd, struct privsep_proc *p, struct imsg *imsg)
 int
 parent_dispatch_ikev2(int fd, struct privsep_proc *p, struct imsg *imsg)
 {
-	struct iked	*env = p->p_ps->ps_env;
-	struct in_addr	*addr, *mask;
-	uint8_t		*ptr;
-	size_t		 left;
-	unsigned int	 ifidx;
-	char		 ifname[IF_NAMESIZE];
+	struct iked		*env = p->p_ps->ps_env;
 
 	switch (imsg->hdr.type) {
-	case IMSG_IF_ADDADDR4:
-	case IMSG_IF_DELADDR4:
-		ptr = imsg->data;
-		left = IMSG_DATA_SIZE(imsg);
-		if (left != sizeof(*addr) + sizeof(*mask) + sizeof(ifidx))
-			fatalx("bad length imsg received");
-
-		addr = (struct in_addr *) ptr;
-		ptr += sizeof(*addr);
-		left -= sizeof(*addr);
-
-		mask = (struct in_addr *) ptr;
-		ptr += sizeof(*mask);
-		left -= sizeof(*mask);
-
-		memcpy(&ifidx, ptr, sizeof(ifidx));
-		ptr += sizeof(ifidx);
-		left -= sizeof(ifidx);
-
-		if_indextoname(ifidx, ifname);
-
-		if (imsg->hdr.type == IMSG_IF_ADDADDR4)
-			vroute_addaddr(env, ifname, addr, mask);
-		else
-			vroute_deladdr(env, ifname, addr);
-		break;
+	case IMSG_IF_ADDADDR:
+	case IMSG_IF_DELADDR:
+		return (vroute_getaddr(env, imsg));
 	case IMSG_VROUTE_ADD:
 		return (vroute_getaddroute(env, imsg));
 	case IMSG_VROUTE_CLONE:
