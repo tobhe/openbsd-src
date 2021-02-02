@@ -148,6 +148,7 @@ vroute_setroute(struct iked *env, uint8_t rdomain, struct sockaddr *dst,
 {
 	struct sockaddr_storage	 sa;
 	struct sockaddr_in	*in;
+	struct sockaddr_in6	*in6;
 	struct iovec		 iov[5];
 	int			 iovcnt = 0;
 	uint8_t			 af;
@@ -164,15 +165,14 @@ vroute_setroute(struct iked *env, uint8_t rdomain, struct sockaddr *dst,
 	iov[iovcnt].iov_len = sizeof(rdomain);
 	iovcnt++;
 
-	switch(af) {
-	case AF_INET:
-		in = (struct sockaddr_in *)dst;
-		iov[iovcnt].iov_base = in;
-		iov[iovcnt].iov_len = sizeof(*in);
-		iovcnt++;
+	iov[iovcnt].iov_base = dst;
+	iov[iovcnt].iov_len = dst->sa_len;
+	iovcnt++;
 
-		if (type != IMSG_VROUTE_CLONE) {
-			bzero(&sa, sizeof(sa));
+	if (type != IMSG_VROUTE_CLONE) {
+		bzero(&sa, sizeof(sa));
+		switch(af) {
+		case AF_INET:
 			in = (struct sockaddr_in *)&sa;
 			in->sin_addr.s_addr = prefixlen2mask(mask);
 			in->sin_family = af;
@@ -180,15 +180,22 @@ vroute_setroute(struct iked *env, uint8_t rdomain, struct sockaddr *dst,
 			iov[iovcnt].iov_base = in;
 			iov[iovcnt].iov_len = sizeof(*in);
 			iovcnt++;
-			in = (struct sockaddr_in *)addr;
-			iov[iovcnt].iov_base = in;
-			iov[iovcnt].iov_len = sizeof(*in);
+			break;
+		case AF_INET6:
+			in6 = (struct sockaddr_in6 *)&sa;
+			prefixlen2mask6(mask,
+			    (uint32_t *)in6->sin6_addr.s6_addr);
+			in6->sin6_family = af;
+			in6->sin6_len = sizeof(*in6);
+			iov[iovcnt].iov_base = in6;
+			iov[iovcnt].iov_len = sizeof(*in6);
 			iovcnt++;
+			break;
 		}
-		break;
-	case AF_INET6:
-		/* XXX: notyet */
-		return (-1);
+
+		iov[iovcnt].iov_base = addr;
+		iov[iovcnt].iov_len = addr->sa_len;
+		iovcnt++;
 	}
 
 	return (proc_composev(&env->sc_ps, PROC_PARENT, type, iov, iovcnt));
