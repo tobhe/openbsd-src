@@ -952,8 +952,6 @@ int vroute_setdelroute(struct iked *, uint8_t, struct sockaddr *,
 int vroute_getaddroute(struct iked *, struct imsg *);
 int vroute_getcloneroute(struct iked *, struct imsg *);
 int vroute_getdelroute(struct iked *, struct imsg *);
-int vroute_addaddr(struct iked *, char *, struct in_addr *, struct in_addr *);
-int vroute_deladdr(struct iked *, char *, struct in_addr *);
 
 /* ikev2.c */
 pid_t	 ikev2(struct privsep *, struct privsep_proc *);

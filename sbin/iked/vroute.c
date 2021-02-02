@@ -43,7 +43,7 @@ int vroute_setroute(struct iked *, uint8_t, struct sockaddr *, uint8_t,
 int vroute_getroute(struct iked *, struct imsg *, uint8_t, int);
 int vroute_doroute(struct iked *, int, int, int, uint8_t, struct sockaddr *,
     struct sockaddr *, struct sockaddr *);
-int vroute_doaddr(struct iked *, char *, struct in_addr *, struct in_addr *, int);
+int vroute_doaddr(struct iked *, char *, struct sockaddr *, struct sockaddr *, int);
 
 struct iked_vroute_sc {
 	int	ivr_iosock;
@@ -84,7 +84,7 @@ int
 vroute_getaddr(struct iked *env, struct imsg *imsg)
 {
 	char			 ifname[IF_NAMESIZE];
-	struct sockaddr_in	*addr, *mask;
+	struct sockaddr	*addr, *mask;
 	uint8_t			*ptr;
 	size_t			 left;
 	int			 af;
@@ -92,30 +92,37 @@ vroute_getaddr(struct iked *env, struct imsg *imsg)
 
 	ptr = imsg->data;
 	left = IMSG_DATA_SIZE(imsg);
-	if (left != sizeof(*addr) + sizeof(*mask) + sizeof(ifidx))
+
+	if (left < sizeof(*addr))
 		fatalx("bad length imsg received");
 
-	addr = (struct sockaddr_in *) ptr;
-	af = addr->sin_family;
-	ptr += sizeof(*addr);
-	left -= sizeof(*addr);
+	addr = (struct sockaddr *) ptr;
+	af = addr->sa_family;
 
-	mask = (struct sockaddr_in *) ptr;
-	if (mask->sin_family != af)
+	if (left < addr->sa_len)
+		fatalx("bad length imsg received");
+	ptr += addr->sa_len;
+	left -= addr->sa_len;
+
+	mask = (struct sockaddr *) ptr;
+	if (mask->sa_family != af)
 		return (-1);
-	ptr += sizeof(*mask);
-	left -= sizeof(*mask);
 
+	if (left < mask->sa_len)
+		fatalx("bad length imsg received");
+	ptr += mask->sa_len;
+	left -= mask->sa_len;
+
+	if (left != sizeof(ifidx))
+		fatalx("bad length imsg received");
 	memcpy(&ifidx, ptr, sizeof(ifidx));
 	ptr += sizeof(ifidx);
 	left -= sizeof(ifidx);
 
 	if_indextoname(ifidx, ifname);
 
-	if (imsg->hdr.type == IMSG_IF_ADDADDR)
-		return (vroute_addaddr(env, ifname, &addr->sin_addr, &mask->sin_addr));
-	else
-		return (vroute_deladdr(env, ifname, &addr->sin_addr));
+	return (vroute_doaddr(env, ifname, addr, mask,
+	    imsg->hdr.type == IMSG_IF_ADDADDR));
 }
 
 int
@@ -486,46 +493,36 @@ vroute_process(struct iked *env, int msglen, struct vroute_msg *m_rtmsg,
 }
 
 int
-vroute_addaddr(struct iked *env, char *ifname, struct in_addr *addr,
-    struct in_addr *mask)
-{
-	return (vroute_doaddr(env, ifname, addr, mask, 1));
-}
-
-int
-vroute_deladdr(struct iked *env, char *ifname, struct in_addr *addr)
-{
-	return (vroute_doaddr(env, ifname, addr, NULL, 0));
-}
-
-int
-vroute_doaddr(struct iked *env, char *ifname, struct in_addr *addr,
-    struct in_addr *mask, int add)
+vroute_doaddr(struct iked *env, char *ifname, struct sockaddr *addr,
+    struct sockaddr *mask, int add)
 {
 	struct iked_vroute_sc	*ivr = env->sc_vroute;
 	struct ifaliasreq	 req;
-	struct sockaddr_in	*in;
 	unsigned long		 ioreq;
+	int			 af;
 
 	bzero(&req, sizeof(req));
 	strncpy(req.ifra_name, ifname, sizeof(req.ifra_name));
 
-	in = (struct sockaddr_in *)&req.ifra_addr;
-	in->sin_family = AF_INET;
-	in->sin_len = sizeof(req.ifra_addr);
-	in->sin_addr.s_addr = addr->s_addr;
-
-	if (add) {
-		in = (struct sockaddr_in *)&req.ifra_mask;
-		in->sin_family = AF_INET;
-		in->sin_len = sizeof(req.ifra_mask);
-		in->sin_addr.s_addr = mask->s_addr;
+	af = addr->sa_family;
+	switch (af) {
+	case AF_INET:
+		ioreq = add ? SIOCAIFADDR : SIOCDIFADDR;
+		break;
+	case AF_INET6:
+		ioreq = add ? SIOCAIFADDR_IN6 : SIOCDIFADDR_IN6;
+		break;
+	default:
+		return (-1);
 	}
 
-	ioreq = add ? SIOCAIFADDR : SIOCDIFADDR;
+	memcpy(&req.ifra_addr, addr, addr->sa_len);
+
+	if (add)
+		memcpy(&req.ifra_mask, mask, mask->sa_len);
+
 	if (ioctl(ivr->ivr_iosock, ioreq, &req) == -1) {
-		log_warn("%s: req: %lu, %s", __func__, ioreq,
-		    inet_ntoa(*addr));
+		log_warn("%s: req: %lu", __func__, ioreq);
 		return (-1);
 	}
 
