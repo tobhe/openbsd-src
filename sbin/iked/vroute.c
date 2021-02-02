@@ -289,8 +289,6 @@ vroute_getcloneroute(struct iked *env, struct imsg *imsg)
 	int			 flags;
 	int			 addrs;
 
-	log_debug("%s: called.", __func__);
-
 	ptr = (uint8_t *)imsg->data;
 	left = IMSG_DATA_SIZE(imsg);
 
@@ -419,12 +417,11 @@ vroute_doroute(struct iked *env, int flags, int addrs, int rdomain, uint8_t type
 		}
 	}
 
-	log_debug("%s: len: %u type: %s rdomain: %d dst: %s mask: %s gw: %s", __func__,
-	    rtm.rtm_msglen,
-	    type == RTM_ADD ? "RTM_ADD" :
-	    type == RTM_DELETE ? "RTM_DELETE" :
-	    type == RTM_GET ? "RTM_GET" : "unknown",
-	    rdomain, destbuf, maskbuf, gwbuf);
+	if (type == RTM_ADD || type == RTM_DELETE)
+		log_debug("%s: len: %u type: %s rdomain: %d dst: %s "
+		    "mask: %s gw: %s", __func__, rtm.rtm_msglen,
+		    type == RTM_ADD ? "RTM_ADD" : type == RTM_DELETE ?
+		    "RTM_DELETE" : "unknown", rdomain, destbuf, maskbuf, gwbuf);
 
 	for (i = 0; i < iovcnt; i++)
 		rtm.rtm_msglen += iov[i].iov_len;
@@ -518,6 +515,13 @@ vroute_doaddr(struct iked *env, char *ifname, struct sockaddr *addr,
 		memcpy(&req.ifra_addr, addr, sizeof(req.ifra_addr));
 		if (add)
 			memcpy(&req.ifra_mask, mask, sizeof(req.ifra_addr));
+
+		inet_ntop(af, &((struct sockaddr_in *)addr)->sin_addr,
+		    addr_buf, sizeof(addr_buf));
+		inet_ntop(af, &((struct sockaddr_in *)mask)->sin_addr,
+		    mask_buf, sizeof(mask_buf));
+		log_debug("%s: %s inet %s netmask %s", __func__,
+		    add ? "add" : "del",addr_buf, mask_buf);
 
 		ioreq = add ? SIOCAIFADDR : SIOCDIFADDR;
 		if (ioctl(ivr->ivr_iosock, ioreq, &req) == -1) {
