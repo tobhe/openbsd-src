@@ -269,13 +269,11 @@ parent_configure(struct iked *env)
 	 * proc - run kill to terminate its children safely.
 	 * dns - for reload and ocsp connect.
 	 * inet - for ocsp connect.
-	 * wroute - for using interfaces in iked.conf (SIOCGIFGMEMB)
+	 * wroute - for using interfaces in iked.conf (SIOCAIFGMEMB)
 	 * sendfd - for ocsp sockets.
 	 */
-#if 0
 	if (pledge("stdio rpath proc dns inet wroute sendfd", NULL) == -1)
 		fatal("pledge");
-#endif
 
 	config_setstatic(env);
 	config_setcoupled(env, env->sc_decoupled ? 0 : 1);
