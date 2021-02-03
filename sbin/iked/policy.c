@@ -668,10 +668,10 @@ sa_address(struct iked_sa *sa, struct iked_addr *addr, struct sockaddr *peer)
 int
 sa_configure_iface(struct iked *env, struct iked_sa *sa, int add)
 {
-	struct sockaddr_in	*in, *cp_in;
 	struct iked_flow	*saflow;
 	struct iovec		 iov[4];
 	int			 iovcnt;
+	struct sockaddr		*caddr;
 	struct sockaddr_in	*addr;
 	struct sockaddr_in	 mask;
 	struct sockaddr_in6	*addr6;
@@ -745,26 +745,29 @@ sa_configure_iface(struct iked *env, struct iked_sa *sa, int add)
 		rdomain = saflow->flow_rdomain == -1 ?
 		    getrtable() : saflow->flow_rdomain;
 
-		/* XXX: no v6 for now */
-		if (saflow->flow_src.addr_af != AF_INET)
-			continue;
-
-		in = (struct sockaddr_in *)&saflow->flow_src.addr;
-		cp_in = (struct sockaddr_in *)&sa->sa_cp_addr->addr;
-		if (in->sin_addr.s_addr != cp_in->sin_addr.s_addr)
+		switch(saflow->flow_src.addr_af) {
+		case AF_INET:
+			caddr = (struct sockaddr *)&sa->sa_cp_addr->addr;
+			break;
+		case AF_INET6:
+			caddr = (struct sockaddr *)&sa->sa_cp_addr6->addr;
+			break;
+		default:
+			return (-1);
+		}
+		if (sockaddr_cmp((struct sockaddr *)&saflow->flow_src.addr,
+		    caddr, -1) != 0)
 			continue;
 
 		if (add) {
 			if (vroute_setaddroute(env, rdomain,
 			    (struct sockaddr *)&saflow->flow_dst.addr,
-			    saflow->flow_dst.addr_mask,
-			    (struct sockaddr *)&sa->sa_cp_addr->addr))
+			    saflow->flow_dst.addr_mask, caddr))
 				return (-1);
 		} else {
 			if (vroute_setdelroute(env, rdomain,
 			    (struct sockaddr *)&saflow->flow_dst.addr,
-			    saflow->flow_dst.addr_mask,
-			    (struct sockaddr *)&sa->sa_cp_addr->addr))
+			    saflow->flow_dst.addr_mask, caddr))
 				return (-1);
 		}
 	}
