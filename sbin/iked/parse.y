@@ -2456,6 +2456,7 @@ print_policy(struct iked_policy *pol)
 	struct iked_cfg		*cfg;
 	unsigned int		 i, j;
 	const struct ipsec_xf	*xfs = NULL;
+	char			 iface[IF_NAMESIZE];
 
 	print_verbose("ikev2");
 
@@ -2627,6 +2628,9 @@ print_policy(struct iked_policy *pol)
 
 	if (pol->pol_tag[0] != '\0')
 		print_verbose(" tag \"%s\"", pol->pol_tag);
+
+	if (pol->pol_iface != 0 && if_indextoname(pol->pol_iface, iface) != NULL)
+		print_verbose(" iface %s", iface);
 
 	if (pol->pol_tap != 0)
 		print_verbose(" tap \"enc%u\"", pol->pol_tap);
