@@ -739,6 +739,11 @@ sa_configure_iface(struct iked *env, struct iked_sa *sa, int add)
 		if (vroute_setcloneroute(env, getrtable(),
 		    (struct sockaddr *)&sa->sa_peer.addr, 0, NULL))
 			return (-1);
+	} else {
+		if (vroute_setdelroute(env, getrtable(),
+		    (struct sockaddr *)&sa->sa_peer.addr,
+		    0, NULL))
+			return (-1);
 	}
 
 	TAILQ_FOREACH(saflow, &sa->sa_flows, flow_entry) {

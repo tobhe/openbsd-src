@@ -35,7 +35,7 @@
 
 #include <iked.h>
 
-#define IKED_VROUTE_PRIO	7
+#define IKED_VROUTE_PRIO	10
 
 #define ROUNDUP(a)			\
     (((a) & (sizeof(long) - 1)) ? (1 + ((a) | (sizeof(long) - 1))) : (a))
@@ -182,7 +182,7 @@ vroute_setroute(struct iked *env, uint8_t rdomain, struct sockaddr *dst,
 	iov[iovcnt].iov_len = dst->sa_len;
 	iovcnt++;
 
-	if (type != IMSG_VROUTE_CLONE) {
+	if (type != IMSG_VROUTE_CLONE && addr) {
 		bzero(&sa, sizeof(sa));
 		switch(af) {
 		case AF_INET:
@@ -223,18 +223,17 @@ vroute_getaddroute(struct iked *env, struct imsg *imsg)
 int
 vroute_getdelroute(struct iked *env, struct imsg *imsg)
 {
-	return (vroute_getroute(env, imsg, RTM_DELETE, RTF_STATIC));
+	return (vroute_getroute(env, imsg, RTM_DELETE, RTF_UP | RTF_STATIC));
 }
 
 int
 vroute_getroute(struct iked *env, struct imsg *imsg, uint8_t type, int flags)
 {
-	struct sockaddr		*sa[3];
+	struct sockaddr		*dest, *mask = NULL, *addr = NULL;
 	uint8_t			*ptr;
 	size_t			 left;
 	uint8_t			 af, rdomain;
-	int			 i;
-	int			 addrs;
+	int			 addrs = 0;
 
 	ptr = (uint8_t *)imsg->data;
 	left = IMSG_DATA_SIZE(imsg);
@@ -251,29 +250,42 @@ vroute_getroute(struct iked *env, struct imsg *imsg, uint8_t type, int flags)
 	ptr += sizeof(rdomain);
 	left -= sizeof(rdomain);
 
-	for (i = 0; i < 3; i++) {
-		switch(af) {
-		case AF_INET:
-			if (left < sizeof(struct sockaddr_in))
-				return (-1);
-			sa[i] = (struct sockaddr *)ptr;
-			ptr += sizeof(struct sockaddr_in);
-			left -= sizeof(struct sockaddr_in);
-			break;
-		case AF_INET6:
-			if (left < sizeof(struct sockaddr_in6))
-				return (-1);
-			sa[i] = (struct sockaddr *)ptr;
-			ptr += sizeof(struct sockaddr_in6);
-			left -= sizeof(struct sockaddr_in6);
-			break;
-		default:
+	if (left < sizeof(struct sockaddr))
+		return (-1);
+	dest = (struct sockaddr *)ptr;
+	if (left < dest->sa_len)
+		return (-1);
+	socket_setport(dest, 0);
+	ptr += dest->sa_len;
+	left -= dest->sa_len;
+	addrs |= RTA_DST;
+
+	if (left != 0) {
+		if (left < sizeof(struct sockaddr))
 			return (-1);
-		}
+		mask = (struct sockaddr *)ptr;
+		if (left < mask->sa_len)
+			return (-1);
+		socket_setport(mask, 0);
+		ptr += mask->sa_len;
+		left -= mask->sa_len;
+		addrs |= RTA_NETMASK;
+
+		if (left < sizeof(struct sockaddr))
+			return (-1);
+		addr = (struct sockaddr *)ptr;
+		if (left < addr->sa_len)
+			return (-1);
+		socket_setport(addr, 0);
+		ptr += addr->sa_len;
+		left -= addr->sa_len;
+		addrs |= RTA_GATEWAY;
+	} else {
+		flags |= RTF_HOST;
 	}
-	addrs = RTA_DST | RTA_GATEWAY | RTA_NETMASK;
+
 	return (vroute_doroute(env, flags, addrs, rdomain, type,
-	    sa[0], sa[1], sa[2]));
+	    dest, mask, addr));
 }
 
 int
@@ -347,12 +359,8 @@ vroute_doroute(struct iked *env, int flags, int addrs, int rdomain, uint8_t type
     struct sockaddr *dest, struct sockaddr *mask, struct sockaddr *addr)
 {
 	struct vroute_msg	 m_rtmsg;
-	char			 destbuf[INET_ADDRSTRLEN];
-	char			 maskbuf[INET_ADDRSTRLEN];
-	char			 gwbuf[INET_ADDRSTRLEN];
 	struct iovec		 iov[7];
 	struct iked_vroute_sc	*ivr = env->sc_vroute;
-	struct sockaddr_in	*in;
 	ssize_t			 len;
 	int			 iovcnt = 0;
 	int			 i;
@@ -376,8 +384,6 @@ vroute_doroute(struct iked *env, int flags, int addrs, int rdomain, uint8_t type
 	iovcnt++;
 
 	if (rtm.rtm_addrs & RTA_DST) {
-		in = (struct sockaddr_in *)dest;
-		strlcpy(destbuf, inet_ntoa(in->sin_addr), sizeof(destbuf));
 		iov[iovcnt].iov_base = dest;
 		iov[iovcnt].iov_len = dest->sa_len;
 		iovcnt++;
@@ -390,8 +396,6 @@ vroute_doroute(struct iked *env, int flags, int addrs, int rdomain, uint8_t type
 	}
 
 	if (rtm.rtm_addrs & RTA_GATEWAY) {
-		in = (struct sockaddr_in *)addr;
-		strlcpy(gwbuf, inet_ntoa(in->sin_addr), sizeof(gwbuf));
 		iov[iovcnt].iov_base = addr;
 		iov[iovcnt].iov_len = addr->sa_len;
 		iovcnt++;
@@ -404,8 +408,6 @@ vroute_doroute(struct iked *env, int flags, int addrs, int rdomain, uint8_t type
 	}
 
 	if (rtm.rtm_addrs & RTA_NETMASK) {
-		in = (struct sockaddr_in *)mask;
-		strlcpy(maskbuf, inet_ntoa(in->sin_addr), sizeof(maskbuf));
 		iov[iovcnt].iov_base = mask;
 		iov[iovcnt].iov_len = mask->sa_len;
 		iovcnt++;
@@ -417,14 +419,12 @@ vroute_doroute(struct iked *env, int flags, int addrs, int rdomain, uint8_t type
 		}
 	}
 
-	if (type == RTM_ADD || type == RTM_DELETE)
-		log_debug("%s: len: %u type: %s rdomain: %d dst: %s "
-		    "mask: %s gw: %s", __func__, rtm.rtm_msglen,
-		    type == RTM_ADD ? "RTM_ADD" : type == RTM_DELETE ?
-		    "RTM_DELETE" : "unknown", rdomain, destbuf, maskbuf, gwbuf);
-
 	for (i = 0; i < iovcnt; i++)
 		rtm.rtm_msglen += iov[i].iov_len;
+
+	log_debug("%s: len: %u type: %s rdomain: %d flags %x addrs %x", __func__, rtm.rtm_msglen,
+	    type == RTM_ADD ? "RTM_ADD" : type == RTM_DELETE ? "RTM_DELETE" :
+	    type == RTM_GET ? "RTM_GET" : "unknown", rdomain, flags,  addrs);
 
 	if (writev(ivr->ivr_rtsock, iov, iovcnt) == -1) {
 		if ((type == RTM_ADD && errno != EEXIST) ||
