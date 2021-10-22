@@ -1129,7 +1129,6 @@ swcr_process(struct cryptop *crp)
 	}
 
 done:
-	crypto_done(crp);
 	return 0;
 }
 

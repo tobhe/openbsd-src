@@ -515,14 +515,3 @@ crypto_init(void)
 	pool_init(&cryptop_pool, sizeof(struct cryptop), 0, IPL_VM, 0,
 	    "cryptop", NULL);
 }
-
-/*
- * Invoke the callback on behalf of the driver.
- */
-void
-crypto_done(struct cryptop *crp)
-{
-	crp->crp_flags |= CRYPTO_F_DONE;
-
-	crp->crp_callback(crp);
-}
