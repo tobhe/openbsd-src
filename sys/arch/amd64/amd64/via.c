@@ -460,7 +460,6 @@ viac3_crypto_process(struct cryptop *crp)
 	}
 out:
 	crp->crp_etype = err;
-	crypto_done(crp);
 	return (err);
 }
 

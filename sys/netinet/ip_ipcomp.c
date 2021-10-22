@@ -139,7 +139,7 @@ ipcomp_input(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 {
 	const struct comp_algo *ipcompx = tdb->tdb_compalgxform;
 	struct tdb_crypto *tc;
-	int hlen;
+	int hlen, error;
 
 	struct cryptodesc *crdc = NULL;
 	struct cryptop *crp;
@@ -176,7 +176,6 @@ ipcomp_input(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 	crp->crp_ilen = m->m_pkthdr.len - (skip + hlen);
 	crp->crp_flags = CRYPTO_F_IMBUF | CRYPTO_F_MPSAFE;
 	crp->crp_buf = (caddr_t)m;
-	crp->crp_callback = ipsec_input_cb;
 	crp->crp_sid = tdb->tdb_cryptoid;
 	crp->crp_opaque = (caddr_t)tc;
 
@@ -188,8 +187,38 @@ ipcomp_input(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 	tc->tc_rdomain = tdb->tdb_rdomain;
 	tc->tc_dst = tdb->tdb_dst;
 
-	crypto_dispatch(crp);
+	KERNEL_LOCK();
+	while ((error = crypto_invoke(crp)) == EAGAIN) {
+		/* Reset the session ID */
+		if (tdb->tdb_cryptoid != 0)
+			tdb->tdb_cryptoid = crp->crp_sid;
+	}
+	KERNEL_UNLOCK();
+	if (error) {
+		DPRINTF("crypto error %d", crp->crp_etype);
+		ipsecstat_inc(ipsec_noxform);
+		goto drop;
+	}
+
+	error = ipcomp_input_cb(tdb, tc, m, crp->crp_olen);
+	if (error) {
+		ipsecstat_inc(ipsec_idrops);
+		tdb->tdb_idrops++;
+	}
+
+	/* Release the crypto descriptors */
+	crypto_freereq(crp);
+
 	return 0;
+ drop:
+	ipsecstat_inc(ipsec_idrops);
+	tdb->tdb_idrops++;
+	free(tc, M_XDATA, 0);
+	m_freem(m);
+	crypto_freereq(crp);
+
+	/* XXX: 0? */
+	return error;
 }
 
 int
@@ -478,13 +507,27 @@ ipcomp_output(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 	crp->crp_ilen = m->m_pkthdr.len;	/* Total input length */
 	crp->crp_flags = CRYPTO_F_IMBUF | CRYPTO_F_MPSAFE;
 	crp->crp_buf = (caddr_t)m;
-	crp->crp_callback = ipsec_output_cb;
 	crp->crp_opaque = (caddr_t)tc;
 	crp->crp_sid = tdb->tdb_cryptoid;
 
-	crypto_dispatch(crp);
-	return 0;
+	KERNEL_LOCK();
+	while ((error = crypto_invoke(crp)) == EAGAIN) {
+		/* Reset the session ID */
+		if (tdb->tdb_cryptoid != 0)
+			tdb->tdb_cryptoid = crp->crp_sid;
+	}
+	KERNEL_UNLOCK();
+	if (error) {
+		DPRINTF("crypto error %d", crp->crp_etype);
+		ipsecstat_inc(ipsec_noxform);
+		goto drop;
+	}
 
+	error = ipcomp_output_cb(tdb, tc, m, crp->crp_ilen, crp->crp_olen);
+	if (error) {
+		ipsecstat_inc(ipsec_odrops);
+		tdb->tdb_odrops++;
+	}
  drop:
 	m_freem(m);
 	crypto_freereq(crp);

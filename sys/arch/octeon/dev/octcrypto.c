@@ -658,7 +658,6 @@ out:
 	smr_read_leave();
 
 	crp->crp_etype = error;
-	crypto_done(crp);
 	return error;
 }
 

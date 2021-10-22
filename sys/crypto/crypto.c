@@ -377,41 +377,14 @@ crypto_unregister(u_int32_t driverid, int alg)
 }
 
 /*
- * Add crypto request to a queue, to be processed by a kernel thread.
- */
-void
-crypto_dispatch(struct cryptop *crp)
-{
-	int lock = 1, s;
-	u_int32_t hid;
-
-	s = splvm();
-	hid = (crp->crp_sid >> 32) & 0xffffffff;
-	if (hid < crypto_drivers_num) {
-		if (crypto_drivers[hid].cc_flags & CRYPTOCAP_F_MPSAFE)
-			lock = 0;
-	}
-	splx(s);
-
-	/* XXXSMP crypto_invoke() is not MP safe */
-	lock = 1;
-
-	if (lock)
-		KERNEL_LOCK();
-	crypto_invoke(crp);
-	if (lock)
-		KERNEL_UNLOCK();
-}
-
-/*
  * Dispatch a crypto request to the appropriate crypto devices.
  */
-void
+int
 crypto_invoke(struct cryptop *crp)
 {
 	u_int64_t nid;
 	u_int32_t hid;
-	int error;
+	int error = 0;
 	int s, i;
 
 	/* Sanity checks. */
@@ -422,7 +395,7 @@ crypto_invoke(struct cryptop *crp)
 
 	s = splvm();
 	if (crp->crp_ndesc < 1 || crypto_drivers == NULL) {
-		crp->crp_etype = EINVAL;
+		error = EINVAL;
 		goto done;
 	}
 
@@ -447,13 +420,12 @@ crypto_invoke(struct cryptop *crp)
 			/* Unregister driver and migrate session. */
 			crypto_unregister(hid, CRYPTO_ALGORITHM_MAX + 1);
 			goto migrate;
-		} else {
-			crp->crp_etype = error;
 		}
 	}
 
+ done:
 	splx(s);
-	return;
+	return error;
 
  migrate:
 	/* Migrate session. */
@@ -464,10 +436,8 @@ crypto_invoke(struct cryptop *crp)
 	if (crypto_newsession(&nid, &(crp->crp_desc->CRD_INI), 0) == 0)
 		crp->crp_sid = nid;
 
-	crp->crp_etype = EAGAIN;
- done:
-	crypto_done(crp);
 	splx(s);
+	return EAGAIN;
 }
 
 /*
@@ -517,15 +487,4 @@ crypto_init(void)
 {
 	pool_init(&cryptop_pool, sizeof(struct cryptop), 0, IPL_VM, 0,
 	    "cryptop", NULL);
-}
-
-/*
- * Invoke the callback on behalf of the driver.
- */
-void
-crypto_done(struct cryptop *crp)
-{
-	crp->crp_flags |= CRYPTO_F_DONE;
-
-	crp->crp_callback(crp);
 }

@@ -498,7 +498,6 @@ esp_input(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 	crp->crp_ilen = m->m_pkthdr.len; /* Total input length */
 	crp->crp_flags = CRYPTO_F_IMBUF | CRYPTO_F_MPSAFE;
 	crp->crp_buf = (caddr_t)m;
-	crp->crp_callback = ipsec_input_cb;
 	crp->crp_sid = tdb->tdb_cryptoid;
 	crp->crp_opaque = (caddr_t)tc;
 
@@ -526,7 +525,28 @@ esp_input(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 			crde->crd_len = m->m_pkthdr.len - (skip + hlen + alen);
 	}
 
-	crypto_dispatch(crp);
+	KERNEL_LOCK();
+	while ((error = crypto_invoke(crp)) == EAGAIN) {
+		/* Reset the session ID */
+		if (tdb->tdb_cryptoid != 0)
+			tdb->tdb_cryptoid = crp->crp_sid;
+	}
+	KERNEL_UNLOCK();
+	if (error) {
+		DPRINTF("crypto error %d", crp->crp_etype);
+		ipsecstat_inc(ipsec_noxform);
+		goto drop;
+	}
+
+	error = esp_input_cb(tdb, tc, m, crp->crp_olen);
+	if (error) {
+		ipsecstat_inc(ipsec_idrops);
+		tdb->tdb_idrops++;
+	}
+
+	/* Release the crypto descriptors */
+	crypto_freereq(crp);
+
 	return 0;
 
  drop:
@@ -980,7 +1000,6 @@ esp_output(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 	crp->crp_ilen = m->m_pkthdr.len; /* Total input length. */
 	crp->crp_flags = CRYPTO_F_IMBUF | CRYPTO_F_MPSAFE;
 	crp->crp_buf = (caddr_t)m;
-	crp->crp_callback = ipsec_output_cb;
 	crp->crp_opaque = (caddr_t)tc;
 	crp->crp_sid = tdb->tdb_cryptoid;
 
@@ -1010,7 +1029,25 @@ esp_output(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 			crda->crd_len = m->m_pkthdr.len - (skip + alen);
 	}
 
-	crypto_dispatch(crp);
+	KERNEL_LOCK();
+	while ((error = crypto_invoke(crp)) == EAGAIN) {
+		/* Reset the session ID */
+		if (tdb->tdb_cryptoid != 0)
+			tdb->tdb_cryptoid = crp->crp_sid;
+	}
+	KERNEL_UNLOCK();
+	if (error) {
+		DPRINTF("crypto error %d", crp->crp_etype);
+		ipsecstat_inc(ipsec_noxform);
+		goto drop;
+	}
+
+	error = esp_output_cb(tdb, tc, m, crp->crp_ilen, crp->crp_olen);
+	if (error) {
+		ipsecstat_inc(ipsec_odrops);
+		tdb->tdb_odrops++;
+	}
+
 	return 0;
 
  drop:

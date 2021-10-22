@@ -1168,9 +1168,12 @@ sr_crypto_rw(struct sr_workunit *wu)
 	if (wu->swu_xs->flags & SCSI_DATA_OUT) {
 		mdd_crypto = &wu->swu_dis->mds.mdd_crypto;
 		crwu = sr_crypto_prepare(wu, mdd_crypto, 1);
-		crwu->cr_crp->crp_callback = sr_crypto_write;
-		crypto_dispatch(crwu->cr_crp);
-		rv = crwu->cr_crp->crp_etype;
+		KERNEL_LOCK();
+		rv = crypto_invoke(crwu->cr_crp);
+		KERNEL_UNLOCK();
+		if (rv)
+			return (rv);
+		sr_crypto_write(crwu->cr_crp);
 	} else
 		rv = sr_crypto_dev_rw(wu, NULL);
 
@@ -1238,7 +1241,7 @@ sr_crypto_done_internal(struct sr_workunit *wu, struct sr_crypto *mdd_crypto)
 {
 	struct scsi_xfer	*xs = wu->swu_xs;
 	struct sr_crypto_wu	*crwu;
-	int			s;
+	int			s, rv;
 
 	if (ISSET(wu->swu_flags, SR_WUF_REBUILD)) /* RAID 1C */
 		return;
@@ -1246,10 +1249,14 @@ sr_crypto_done_internal(struct sr_workunit *wu, struct sr_crypto *mdd_crypto)
 	/* If this was a successful read, initiate decryption of the data. */
 	if (ISSET(xs->flags, SCSI_DATA_IN) && xs->error == XS_NOERROR) {
 		crwu = sr_crypto_prepare(wu, mdd_crypto, 0);
-		crwu->cr_crp->crp_callback = sr_crypto_read;
-		DNPRINTF(SR_D_INTR, "%s: sr_crypto_done: crypto_dispatch %p\n",
+		DNPRINTF(SR_D_INTR, "%s: sr_crypto_done: crypto_invoke %p\n",
 		    DEVNAME(wu->swu_dis->sd_sc), crwu->cr_crp);
-		crypto_dispatch(crwu->cr_crp);
+		KERNEL_LOCK();
+		rv = crypto_invoke(crwu->cr_crp);
+		KERNEL_UNLOCK();
+		if (rv)
+			return;
+		sr_crypto_read(crwu->cr_crp);
 		return;
 	}
 

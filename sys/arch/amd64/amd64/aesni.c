@@ -699,7 +699,6 @@ aesni_process(struct cryptop *crp)
 out:
 	smr_read_leave();
 	crp->crp_etype = err;
-	crypto_done(crp);
 	return (err);
 }
 
