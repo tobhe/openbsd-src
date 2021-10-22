@@ -220,7 +220,7 @@ int	crypto_register(u_int32_t, int *,
 	    int (*)(struct cryptop *));
 int	crypto_unregister(u_int32_t, int);
 int32_t	crypto_get_driverid(u_int8_t);
-void	crypto_invoke(struct cryptop *);
+int	crypto_invoke(struct cryptop *);
 void	crypto_done(struct cryptop *);
 
 void	cuio_copydata(struct uio *, int, int, caddr_t);
