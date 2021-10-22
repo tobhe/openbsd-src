@@ -377,33 +377,6 @@ crypto_unregister(u_int32_t driverid, int alg)
 }
 
 /*
- * Add crypto request to a queue, to be processed by a kernel thread.
- */
-void
-crypto_dispatch(struct cryptop *crp)
-{
-	int lock = 1, s;
-	u_int32_t hid;
-
-	s = splvm();
-	hid = (crp->crp_sid >> 32) & 0xffffffff;
-	if (hid < crypto_drivers_num) {
-		if (crypto_drivers[hid].cc_flags & CRYPTOCAP_F_MPSAFE)
-			lock = 0;
-	}
-	splx(s);
-
-	/* XXXSMP crypto_invoke() is not MP safe */
-	lock = 1;
-
-	if (lock)
-		KERNEL_LOCK();
-	crypto_invoke(crp);
-	if (lock)
-		KERNEL_UNLOCK();
-}
-
-/*
  * Dispatch a crypto request to the appropriate crypto devices.
  */
 int

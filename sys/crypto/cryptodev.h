@@ -213,7 +213,6 @@ void	crypto_init(void);
 
 int	crypto_newsession(u_int64_t *, struct cryptoini *, int);
 int	crypto_freesession(u_int64_t);
-void	crypto_dispatch(struct cryptop *);
 int	crypto_register(u_int32_t, int *,
 	    int (*)(u_int32_t *, struct cryptoini *), int (*)(u_int64_t),
 	    int (*)(struct cryptop *));
