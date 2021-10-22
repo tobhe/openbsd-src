@@ -184,11 +184,13 @@ ipcomp_input(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 	tc->tc_rdomain = tdb->tdb_rdomain;
 	tc->tc_dst = tdb->tdb_dst;
 
+	KERNEL_LOCK();
 	while ((error = crypto_invoke(crp)) == EAGAIN) {
 		/* Reset the session ID */
 		if (tdb->tdb_cryptoid != 0)
 			tdb->tdb_cryptoid = crp->crp_sid;
 	}
+	KERNEL_UNLOCK();
 	if (error) {
 		DPRINTF("crypto error %d", crp->crp_etype);
 		ipsecstat_inc(ipsec_noxform);
@@ -506,11 +508,13 @@ ipcomp_output(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 	crp->crp_opaque = (caddr_t)tc;
 	crp->crp_sid = tdb->tdb_cryptoid;
 
+	KERNEL_LOCK();
 	while ((error = crypto_invoke(crp)) == EAGAIN) {
 		/* Reset the session ID */
 		if (tdb->tdb_cryptoid != 0)
 			tdb->tdb_cryptoid = crp->crp_sid;
 	}
+	KERNEL_UNLOCK();
 	if (error) {
 		DPRINTF("crypto error %d", crp->crp_etype);
 		ipsecstat_inc(ipsec_noxform);
