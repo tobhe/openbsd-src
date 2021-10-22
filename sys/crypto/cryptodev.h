@@ -178,8 +178,6 @@ struct cryptop {
 	int		 crp_ndesc;	/* Amount of descriptors to use */
 	int		 crp_ndescalloc;/* Amount of descriptors allocated */
 
-	void (*crp_callback)(struct cryptop *); /* Callback function */
-
 	caddr_t		crp_mac;
 };
 

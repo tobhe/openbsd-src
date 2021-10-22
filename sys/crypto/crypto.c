@@ -389,7 +389,6 @@ crypto_invoke(struct cryptop *crp)
 
 	/* Sanity checks. */
 	KASSERT(crp != NULL);
-	KASSERT(crp->crp_callback != NULL);
 
 	KERNEL_ASSERT_LOCKED();
 
