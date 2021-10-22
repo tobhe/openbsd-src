@@ -58,7 +58,7 @@ void	sr_raid1c_free_resources(struct sr_discipline *sd);
 int	sr_raid1c_ioctl(struct sr_discipline *sd, struct bioc_discipline *bd);
 int	sr_raid1c_meta_opt_handler(struct sr_discipline *,
 	    struct sr_meta_opt_hdr *);
-void	sr_raid1c_write(struct cryptop *);
+void	sr_raid1c_write(struct sr_crypto_wu *);
 int	sr_raid1c_rw(struct sr_workunit *);
 int	sr_raid1c_dev_rw(struct sr_workunit *, struct sr_crypto_wu *);
 void	sr_raid1c_done(struct sr_workunit *wu);
@@ -312,16 +312,15 @@ bad:
 }
 
 void
-sr_raid1c_write(struct cryptop *crp)
+sr_raid1c_write(struct sr_crypto_wu *crwu)
 {
-	struct sr_crypto_wu	*crwu = crp->crp_opaque;
 	struct sr_workunit	*wu = &crwu->cr_wu;
 	int			s;
 
 	DNPRINTF(SR_D_INTR, "%s: sr_raid1c_write: wu %p xs: %p\n",
 	    DEVNAME(wu->swu_dis->sd_sc), wu, wu->swu_xs);
 
-	if (crp->crp_etype) {
+	if (crwu->cr_crp->crp_etype) {
 		/* fail io */
 		wu->swu_xs->error = XS_DRIVER_STUFFUP;
 		s = splbio();
@@ -363,7 +362,7 @@ sr_raid1c_rw(struct sr_workunit *wu)
 		KERNEL_UNLOCK();
 		if (rv)
 			return (rv);
-		sr_raid1c_write(crwu->cr_crp);
+		sr_raid1c_write(crwu);
 	} else
 		rv = sr_raid1c_dev_rw(wu, NULL);
 

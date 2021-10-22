@@ -171,7 +171,6 @@ struct cryptop {
 #define CRYPTO_F_MPSAFE	0x0004	/* Do not use kernel lock for callback */
 
 	void 		*crp_buf;	/* Data to be processed */
-	void 		*crp_opaque;	/* Opaque pointer, passed along */
 
 	struct cryptodesc *crp_desc;	/* List of processing descriptors */
 	struct cryptodesc crp_sdesc[2];	/* Static array for small ops */

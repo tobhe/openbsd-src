@@ -499,7 +499,6 @@ esp_input(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 	crp->crp_flags = CRYPTO_F_IMBUF | CRYPTO_F_MPSAFE;
 	crp->crp_buf = (caddr_t)m;
 	crp->crp_sid = tdb->tdb_cryptoid;
-	crp->crp_opaque = (caddr_t)tc;
 
 	/* These are passed as-is to the callback */
 	tc->tc_skip = skip;
@@ -1000,7 +999,6 @@ esp_output(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 	crp->crp_ilen = m->m_pkthdr.len; /* Total input length. */
 	crp->crp_flags = CRYPTO_F_IMBUF | CRYPTO_F_MPSAFE;
 	crp->crp_buf = (caddr_t)m;
-	crp->crp_opaque = (caddr_t)tc;
 	crp->crp_sid = tdb->tdb_cryptoid;
 
 	if (esph) {
