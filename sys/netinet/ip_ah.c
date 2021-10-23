@@ -698,13 +698,15 @@ ah_input(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 	tc->tc_rpl = tdb->tdb_rpl;
 
 	KERNEL_LOCK();
-	while ((error = crypto_invoke(crp)) == EAGAIN) {
+	crypto_invoke(crp);
+	while (crp->crp_etype == EAGAIN) {
 		/* Reset the session ID */
 		if (tdb->tdb_cryptoid != 0)
 			tdb->tdb_cryptoid = crp->crp_sid;
+		crypto_invoke(crp);
 	}
 	KERNEL_UNLOCK();
-	if (error) {
+	if (crp->crp_etype) {
 		DPRINTF("crypto error %d", crp->crp_etype);
 		ipsecstat_inc(ipsec_noxform);
 		goto drop;
@@ -1163,13 +1165,15 @@ ah_output(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 	memcpy(&tc->tc_dst, &tdb->tdb_dst, sizeof(union sockaddr_union));
 
 	KERNEL_LOCK();
-	while ((error = crypto_invoke(crp)) == EAGAIN) {
+	crypto_invoke(crp);
+	while (crp->crp_etype == EAGAIN) {
 		/* Reset the session ID */
 		if (tdb->tdb_cryptoid != 0)
 			tdb->tdb_cryptoid = crp->crp_sid;
+		crypto_invoke(crp);
 	}
 	KERNEL_UNLOCK();
-	if (error) {
+	if (crp->crp_etype) {
 		DPRINTF("crypto error %d", crp->crp_etype);
 		ipsecstat_inc(ipsec_noxform);
 		goto drop;

@@ -358,10 +358,8 @@ sr_raid1c_rw(struct sr_workunit *wu)
 		mdd_raid1c = &wu->swu_dis->mds.mdd_raid1c;
 		crwu = sr_crypto_prepare(wu, &mdd_raid1c->sr1c_crypto, 1);
 		KERNEL_LOCK();
-		rv = crypto_invoke(crwu->cr_crp);
+		crypto_invoke(crwu->cr_crp);
 		KERNEL_UNLOCK();
-		if (rv)
-			return (rv);
 		sr_raid1c_write(crwu);
 	} else
 		rv = sr_raid1c_dev_rw(wu, NULL);

@@ -379,12 +379,12 @@ crypto_unregister(u_int32_t driverid, int alg)
 /*
  * Dispatch a crypto request to the appropriate crypto devices.
  */
-int
+void
 crypto_invoke(struct cryptop *crp)
 {
 	u_int64_t nid;
 	u_int32_t hid;
-	int error = 0;
+	int error;
 	int s, i;
 
 	/* Sanity checks. */
@@ -394,7 +394,7 @@ crypto_invoke(struct cryptop *crp)
 
 	s = splvm();
 	if (crp->crp_ndesc < 1 || crypto_drivers == NULL) {
-		error = EINVAL;
+		crp->crp_etype = EINVAL;
 		goto done;
 	}
 
@@ -419,12 +419,13 @@ crypto_invoke(struct cryptop *crp)
 			/* Unregister driver and migrate session. */
 			crypto_unregister(hid, CRYPTO_ALGORITHM_MAX + 1);
 			goto migrate;
+		} else {
+			crp->crp_etype = error;
 		}
 	}
 
- done:
 	splx(s);
-	return error;
+	return;
 
  migrate:
 	/* Migrate session. */
@@ -435,8 +436,9 @@ crypto_invoke(struct cryptop *crp)
 	if (crypto_newsession(&nid, &(crp->crp_desc->CRD_INI), 0) == 0)
 		crp->crp_sid = nid;
 
+	crp->crp_etype = EAGAIN;
+ done:
 	splx(s);
-	return EAGAIN;
 }
 
 /*
