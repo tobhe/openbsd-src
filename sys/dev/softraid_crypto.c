@@ -1171,6 +1171,7 @@ sr_crypto_rw(struct sr_workunit *wu)
 		crypto_invoke(crwu->cr_crp);
 		KERNEL_UNLOCK();
 		sr_crypto_write(crwu);
+		rv = crwu->cr_crp->crp_etype;
 	} else
 		rv = sr_crypto_dev_rw(wu, NULL);
 

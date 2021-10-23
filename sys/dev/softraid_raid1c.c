@@ -361,6 +361,7 @@ sr_raid1c_rw(struct sr_workunit *wu)
 		crypto_invoke(crwu->cr_crp);
 		KERNEL_UNLOCK();
 		sr_raid1c_write(crwu);
+		rv = crwu->cr_crp->crp_etype;
 	} else
 		rv = sr_raid1c_dev_rw(wu, NULL);
 
