@@ -347,7 +347,7 @@ esp_input(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 	struct cryptodesc *crde = NULL, *crda = NULL;
 	struct cryptop *crp = NULL;
 	struct tdb_crypto *tc = NULL;
-	int plen, alen, hlen, error;
+	int plen, alen, hlen, error, clen;
 	u_int32_t btsx, esn;
 #ifdef ENCDEBUG
 	char buf[INET6_ADDRSTRLEN];
@@ -542,14 +542,16 @@ esp_input(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 		goto drop;
 	}
 
-	error = esp_input_cb(tdb, tc, m, crp->crp_olen);
+	clen = crp->crp_olen;
+
+	/* Release the crypto descriptors */
+	crypto_freereq(crp);
+
+	error = esp_input_cb(tdb, tc, m, clen);
 	if (error) {
 		ipsecstat_inc(ipsec_idrops);
 		tdb->tdb_idrops++;
 	}
-
-	/* Release the crypto descriptors */
-	crypto_freereq(crp);
 
 	return 0;
 
@@ -766,7 +768,7 @@ esp_output(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 {
 	const struct enc_xform *espx = tdb->tdb_encalgxform;
 	const struct auth_hash *esph = tdb->tdb_authalgxform;
-	int ilen, hlen, rlen, padding, blks, alen, roff, error;
+	int ilen, olen, hlen, rlen, padding, blks, alen, roff, error;
 	u_int64_t replay64;
 	u_int32_t replay;
 	struct mbuf *mi, *mo = (struct mbuf *) NULL;
@@ -1050,7 +1052,13 @@ esp_output(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 		goto drop;
 	}
 
-	error = esp_output_cb(tdb, tc, m, crp->crp_ilen, crp->crp_olen);
+	ilen = crp->crp_ilen;
+	olen = crp->crp_olen;
+
+	/* Release the crypto descriptors */
+	crypto_freereq(crp);
+
+	error = esp_output_cb(tdb, tc, m, ilen, olen);
 	if (error) {
 		ipsecstat_inc(ipsec_odrops);
 		tdb->tdb_odrops++;

@@ -135,7 +135,7 @@ ipcomp_input(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 {
 	const struct comp_algo *ipcompx = tdb->tdb_compalgxform;
 	struct tdb_crypto *tc;
-	int hlen, error;
+	int hlen, error, clen;
 
 	struct cryptodesc *crdc = NULL;
 	struct cryptop *crp;
@@ -202,14 +202,16 @@ ipcomp_input(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 		return 0;
 	}
 
-	error = ipcomp_input_cb(tdb, tc, m, crp->crp_olen);
+	clen = crp->crp_olen;
+
+	/* Release the crypto descriptors */
+	crypto_freereq(crp);
+
+	error = ipcomp_input_cb(tdb, tc, m, clen);
 	if (error) {
 		ipsecstat_inc(ipsec_idrops);
 		tdb->tdb_idrops++;
 	}
-
-	/* Release the crypto descriptors */
-	crypto_freereq(crp);
 
 	return 0;
 }
@@ -345,7 +347,7 @@ int
 ipcomp_output(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 {
 	const struct comp_algo *ipcompx = tdb->tdb_compalgxform;
-	int error, hlen;
+	int error, hlen, ilen, olen;
 	struct cryptodesc *crdc = NULL;
 	struct cryptop *crp = NULL;
 	struct tdb_crypto *tc;
@@ -522,11 +524,20 @@ ipcomp_output(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 		return 0;
 	}
 
+	ilen = crp->crp_ilen;
+	olen = crp->crp_olen;
+
+	/* Release the crypto descriptors */
+	crypto_freereq(crp);
+
 	error = ipcomp_output_cb(tdb, tc, m, crp->crp_ilen, crp->crp_olen);
 	if (error) {
 		ipsecstat_inc(ipsec_odrops);
 		tdb->tdb_odrops++;
 	}
+
+	return 0;
+
  drop:
 	m_freem(m);
 	crypto_freereq(crp);

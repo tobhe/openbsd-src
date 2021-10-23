@@ -531,7 +531,7 @@ ah_input(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 	struct tdb_crypto *tc = NULL;
 	u_int32_t btsx, esn;
 	u_int8_t hl;
-	int error, rplen;
+	int error, rplen, clen;
 	u_int64_t ibytes;
 #ifdef ENCDEBUG
 	char buf[INET6_ADDRSTRLEN];
@@ -715,14 +715,17 @@ ah_input(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 		goto drop;
 	}
 
-	error = ah_input_cb(tdb, tc, m, crp->crp_olen);
+	/* Length of data after processing */
+	clen = crp->crp_olen;
+
+	/* Release the crypto descriptors */
+	crypto_freereq(crp);
+
+	error = ah_input_cb(tdb, tc, m, clen);
 	if (error) {
 		ipsecstat_inc(ipsec_idrops);
 		tdb->tdb_idrops++;
 	}
-
-	/* Release the crypto descriptors */
-	crypto_freereq(crp);
 
 	return 0;
 
@@ -917,7 +920,7 @@ ah_output(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 	struct cryptop *crp = NULL;
 	u_int64_t replay64;
 	u_int16_t iplen;
-	int error, rplen, roff;
+	int error, rplen, roff, ilen, olen;
 	u_int8_t prot;
 	struct ah *ah;
 #if NBPFILTER > 0
@@ -1185,7 +1188,13 @@ ah_output(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 		goto drop;
 	}
 
-	error = ah_output_cb(tdb, tc, m, crp->crp_ilen, crp->crp_olen);
+	ilen = crp->crp_ilen;
+	olen = crp->crp_olen;
+
+	/* Release the crypto descriptors */
+	crypto_freereq(crp);
+
+	error = ah_output_cb(tdb, tc, m, ilen, olen);
 	if (error) {
 		ipsecstat_inc(ipsec_odrops);
 		tdb->tdb_odrops++;
