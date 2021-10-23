@@ -194,7 +194,12 @@ ipcomp_input(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 	if (crp->crp_etype) {
 		DPRINTF("crypto error %d", crp->crp_etype);
 		ipsecstat_inc(ipsec_noxform);
-		goto drop;
+		ipsecstat_inc(ipsec_idrops);
+		tdb->tdb_idrops++;
+		free(tc, M_XDATA, 0);
+		m_freem(m);
+		crypto_freereq(crp);
+		return 0;
 	}
 
 	error = ipcomp_input_cb(tdb, tc, m, crp->crp_olen);
@@ -207,15 +212,6 @@ ipcomp_input(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 	crypto_freereq(crp);
 
 	return 0;
- drop:
-	ipsecstat_inc(ipsec_idrops);
-	tdb->tdb_idrops++;
-	free(tc, M_XDATA, 0);
-	m_freem(m);
-	crypto_freereq(crp);
-
-	/* XXX: 0? */
-	return error;
 }
 
 int
@@ -518,7 +514,12 @@ ipcomp_output(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 	if (crp->crp_etype) {
 		DPRINTF("crypto error %d", crp->crp_etype);
 		ipsecstat_inc(ipsec_noxform);
-		goto drop;
+		ipsecstat_inc(ipsec_odrops);
+		free(tc, M_XDATA, 0);
+		tdb->tdb_odrops++;
+		m_freem(m);
+		crypto_freereq(crp);
+		return 0;
 	}
 
 	error = ipcomp_output_cb(tdb, tc, m, crp->crp_ilen, crp->crp_olen);
