@@ -709,8 +709,6 @@ ah_input(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 	if (crp->crp_etype) {
 		DPRINTF("crypto error %d", crp->crp_etype);
 		ipsecstat_inc(ipsec_noxform);
-		ipsecstat_inc(ipsec_idrops);
-		tdb->tdb_idrops++;
 		error = crp->crp_etype;
 		goto drop;
 	}
@@ -1182,8 +1180,6 @@ ah_output(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 	if (crp->crp_etype) {
 		DPRINTF("crypto error %d", crp->crp_etype);
 		ipsecstat_inc(ipsec_noxform);
-		ipsecstat_inc(ipsec_odrops);
-		tdb->tdb_odrops++;
 		error = crp->crp_etype;
 		goto drop;
 	}
