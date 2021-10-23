@@ -1167,9 +1167,7 @@ sr_crypto_rw(struct sr_workunit *wu)
 	if (wu->swu_xs->flags & SCSI_DATA_OUT) {
 		mdd_crypto = &wu->swu_dis->mds.mdd_crypto;
 		crwu = sr_crypto_prepare(wu, mdd_crypto, 1);
-		KERNEL_LOCK();
 		crypto_invoke(crwu->cr_crp);
-		KERNEL_UNLOCK();
 		sr_crypto_write(crwu);
 		rv = crwu->cr_crp->crp_etype;
 	} else
@@ -1248,9 +1246,7 @@ sr_crypto_done_internal(struct sr_workunit *wu, struct sr_crypto *mdd_crypto)
 		crwu = sr_crypto_prepare(wu, mdd_crypto, 0);
 		DNPRINTF(SR_D_INTR, "%s: sr_crypto_done: crypto_invoke %p\n",
 		    DEVNAME(wu->swu_dis->sd_sc), crwu->cr_crp);
-		KERNEL_LOCK();
 		crypto_invoke(crwu->cr_crp);
-		KERNEL_UNLOCK();
 		sr_crypto_read(crwu);
 		return;
 	}

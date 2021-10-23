@@ -357,9 +357,7 @@ sr_raid1c_rw(struct sr_workunit *wu)
 	    !ISSET(wu->swu_flags, SR_WUF_REBUILD)) {
 		mdd_raid1c = &wu->swu_dis->mds.mdd_raid1c;
 		crwu = sr_crypto_prepare(wu, &mdd_raid1c->sr1c_crypto, 1);
-		KERNEL_LOCK();
 		crypto_invoke(crwu->cr_crp);
-		KERNEL_UNLOCK();
 		sr_raid1c_write(crwu);
 		rv = crwu->cr_crp->crp_etype;
 	} else
