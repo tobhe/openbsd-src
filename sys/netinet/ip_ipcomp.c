@@ -199,7 +199,7 @@ ipcomp_input(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 		free(tc, M_XDATA, 0);
 		m_freem(m);
 		crypto_freereq(crp);
-		return 0;
+		return crp->crp_etype;
 	}
 
 	clen = crp->crp_olen;
@@ -521,7 +521,7 @@ ipcomp_output(struct mbuf *m, struct tdb *tdb, int skip, int protoff)
 		tdb->tdb_odrops++;
 		m_freem(m);
 		crypto_freereq(crp);
-		return 0;
+		return crp->crp_etype;
 	}
 
 	ilen = crp->crp_ilen;
