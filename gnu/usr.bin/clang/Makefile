@@ -47,6 +47,8 @@ SUBDIR+=libclangTooling
 
 SUBDIR+=clang
 
+SUBDIR+=scan-build
+
 SUBDIR+=include/lld/ELF
 
 SUBDIR+=liblldCommon
