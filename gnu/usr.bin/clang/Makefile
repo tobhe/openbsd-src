@@ -39,6 +39,11 @@ SUBDIR+=libclangSerialization
 SUBDIR+=libclangFrontend
 SUBDIR+=libclangRewriteFrontend
 SUBDIR+=libclangFrontendTool
+SUBDIR+=libclangASTMatchers
+SUBDIR+=libclangCrossTU
+SUBDIR+=libclangStaticAnalyzer
+SUBDIR+=libclangIndex
+SUBDIR+=libclangTooling
 
 SUBDIR+=clang
 

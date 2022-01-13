@@ -78,7 +78,7 @@
 /* Enable each functionality of modules */
 #define CLANG_ENABLE_ARCMT 0
 #define CLANG_ENABLE_OBJC_REWRITER 0
-#define CLANG_ENABLE_STATIC_ANALYZER 0
+#define CLANG_ENABLE_STATIC_ANALYZER 1
 
 /* Spawn a new process clang.exe for the CC1 tool invocation, when necessary */
 #define CLANG_SPAWN_CC1 0

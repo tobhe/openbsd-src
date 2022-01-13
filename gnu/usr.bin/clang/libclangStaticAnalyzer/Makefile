@@ -1,0 +1,206 @@
+LIB=	clangStaticAnalyzer
+NOPIC=
+NOPROFILE=
+
+CPPFLAGS+=	-I ${.CURDIR}/../../../llvm/clang/lib/StaticAnalyzer/Checkers
+CPPFLAGS+=	 ${CLANG_INCLUDES}
+
+.include <bsd.own.mk>
+
+# Core
+SRCS+=	APSIntType.cpp \
+	AnalysisManager.cpp \
+	AnalyzerOptions.cpp \
+	BasicValueFactory.cpp \
+	BlockCounter.cpp \
+	BugReporter.cpp \
+	BugReporterVisitors.cpp \
+	CallEvent.cpp \
+	Checker.cpp \
+	CheckerContext.cpp \
+	CheckerHelpers.cpp \
+	CheckerManager.cpp \
+	CheckerRegistryData.cpp \
+	CommonBugCategories.cpp \
+	ConstraintManager.cpp \
+	CoreEngine.cpp \
+	DynamicExtent.cpp \
+	DynamicType.cpp \
+	Environment.cpp \
+	ExplodedGraph.cpp \
+	ExprEngine.cpp \
+	ExprEngineC.cpp \
+	ExprEngineCXX.cpp \
+	ExprEngineCallAndReturn.cpp \
+	ExprEngineObjC.cpp \
+	FunctionSummary.cpp \
+	HTMLDiagnostics.cpp \
+	LoopUnrolling.cpp \
+	LoopWidening.cpp \
+	MemRegion.cpp \
+	PlistDiagnostics.cpp \
+	ProgramState.cpp \
+	RangeConstraintManager.cpp \
+	RangedConstraintManager.cpp \
+	RegionStore.cpp \
+	SMTConstraintManager.cpp \
+	SValBuilder.cpp \
+	SVals.cpp \
+	SarifDiagnostics.cpp \
+	SimpleConstraintManager.cpp \
+	SimpleSValBuilder.cpp \
+	Store.cpp \
+	SymbolManager.cpp \
+	TextDiagnostics.cpp \
+	WorkList.cpp \
+
+# Frontend
+SRCS+=	AnalysisConsumer.cpp \
+	AnalyzerHelpFlags.cpp \
+	CheckerRegistry.cpp \
+	CreateCheckerManager.cpp \
+	FrontendActions.cpp \
+	ModelConsumer.cpp \
+	ModelInjector.cpp \
+
+# Checkers
+SRCS+=	AnalysisOrderChecker.cpp \
+	AnalyzerStatsChecker.cpp \
+	ArrayBoundChecker.cpp \
+	ArrayBoundCheckerV2.cpp \
+	BlockInCriticalSectionChecker.cpp \
+	BoolAssignmentChecker.cpp \
+	BuiltinFunctionChecker.cpp \
+	CStringChecker.cpp \
+	CStringSyntaxChecker.cpp \
+	CallAndMessageChecker.cpp \
+	CastSizeChecker.cpp \
+	CastToStructChecker.cpp \
+	CastValueChecker.cpp \
+	CheckSecuritySyntaxOnly.cpp \
+	CheckSizeofPointer.cpp \
+	CheckerDocumentation.cpp \
+	ChrootChecker.cpp \
+	CloneChecker.cpp \
+	ConversionChecker.cpp \
+	DeadStoresChecker.cpp \
+	DebugCheckers.cpp \
+	DereferenceChecker.cpp \
+	DivZeroChecker.cpp \
+	ExprInspectionChecker.cpp \
+	FixedAddressChecker.cpp \
+	GenericTaintChecker.cpp \
+	IdenticalExprChecker.cpp \
+	InnerPointerChecker.cpp \
+	InvalidatedIteratorChecker.cpp \
+	IvarInvalidationChecker.cpp \
+	LocalizationChecker.cpp \
+	MallocChecker.cpp \
+	MallocOverflowSecurityChecker.cpp \
+	MallocSizeofChecker.cpp \
+	MismatchedIteratorChecker.cpp \
+	MmapWriteExecChecker.cpp \
+	NSAutoreleasePoolChecker.cpp \
+	NSErrorChecker.cpp \
+	NoReturnFunctionChecker.cpp \
+	NonNullParamChecker.cpp \
+	NonnullGlobalConstantsChecker.cpp \
+	NullabilityChecker.cpp \
+	NumberObjectConversionChecker.cpp \
+	PaddingChecker.cpp \
+	PointerArithChecker.cpp \
+	PointerIterationChecker.cpp \
+	PointerSortingChecker.cpp \
+	PointerSubChecker.cpp \
+	PthreadLockChecker.cpp \
+	ReturnPointerRangeChecker.cpp \
+	ReturnUndefChecker.cpp \
+	ReturnValueChecker.cpp \
+	RunLoopAutoreleaseLeakChecker.cpp \
+	SimpleStreamChecker.cpp \
+	StackAddrEscapeChecker.cpp \
+	StdLibraryFunctionsChecker.cpp \
+	StreamChecker.cpp \
+	Taint.cpp \
+	TaintTesterChecker.cpp \
+	TestAfterDivZeroChecker.cpp \
+	TraversalChecker.cpp \
+	TrustNonnullChecker.cpp \
+	UndefBranchChecker.cpp \
+	UndefCapturedBlockVarChecker.cpp \
+	UndefResultChecker.cpp \
+	UndefinedArraySubscriptChecker.cpp \
+	UndefinedAssignmentChecker.cpp \
+	UnixAPIChecker.cpp \
+	UnreachableCodeChecker.cpp \
+	VLASizeChecker.cpp \
+	ValistChecker.cpp \
+	VforkChecker.cpp \
+	VirtualCallChecker.cpp \
+	BasicObjCFoundationChecks.cpp \
+	CheckObjCDealloc.cpp \
+	CheckObjCInstMethSignature.cpp \
+	FuchsiaHandleChecker.cpp \
+	MIGChecker.cpp \
+	MacOSKeychainAPIChecker.cpp \
+	MacOSXAPIChecker.cpp \
+	ObjCAtSyncChecker.cpp \
+	ObjCAutoreleaseWriteChecker.cpp \
+	ObjCContainersASTChecker.cpp \
+	ObjCContainersChecker.cpp \
+	ObjCMissingSuperCallChecker.cpp \
+	ObjCPropertyChecker.cpp \
+	ObjCSelfInitChecker.cpp \
+	ObjCSuperDeallocChecker.cpp \
+	ObjCUnusedIVarsChecker.cpp \
+	OSObjectCStyleCast.cpp \
+	CXXSelfAssignmentChecker.cpp \
+	ContainerModeling.cpp \
+	DebugContainerModeling.cpp \
+	DebugIteratorModeling.cpp \
+	DeleteWithNonVirtualDtorChecker.cpp \
+	MPIBugReporter.cpp \
+	MPIChecker.cpp \
+	MPIFunctionClassifier.cpp \
+	RetainCountChecker.cpp \
+	RetainCountDiagnostics.cpp \
+	UninitializedObjectChecker.cpp \
+	UninitializedPointee.cpp \
+	PutenvWithAutoChecker.cpp \
+	DirectIvarAssignment.cpp \
+	MoveChecker.cpp \
+	LLVMConventionsChecker.cpp \
+	DynamicTypeChecker.cpp \
+	DynamicTypePropagation.cpp \
+	STLAlgorithmModeling.cpp \
+	SmartPtrChecker.cpp \
+	EnumCastOutOfRangeChecker.cpp \
+	GCDAntipatternChecker.cpp \
+	NoUncountedMembersChecker.cpp \
+	RefCntblBaseVirtualDtorChecker.cpp \
+	UncountedCallArgsChecker.cpp \
+	UncountedLambdaCapturesChecker.cpp \
+	UncountedLocalVarsChecker.cpp \
+	PtrTypesSemantics.cpp \
+	GTestChecker.cpp \
+	IteratorModeling.cpp \
+	Iterator.cpp \
+	IteratorRangeChecker.cpp \
+	CheckPlacementNew.cpp \
+	ASTUtils.cpp \
+	UncountedCallArgsChecker.cpp \
+	SmartPtrModeling.cpp \
+
+.PATH:	${.CURDIR}/../../../llvm/clang/lib/StaticAnalyzer/Checkers
+.PATH:	${.CURDIR}/../../../llvm/clang/lib/StaticAnalyzer/Checkers/MPI-Checker
+.PATH:	${.CURDIR}/../../../llvm/clang/lib/StaticAnalyzer/Checkers/UninitializedObject
+.PATH:	${.CURDIR}/../../../llvm/clang/lib/StaticAnalyzer/Checkers/RetainCountChecker
+.PATH:	${.CURDIR}/../../../llvm/clang/lib/StaticAnalyzer/Checkers/WebKit
+.PATH:	${.CURDIR}/../../../llvm/clang/lib/StaticAnalyzer/Checkers/cert
+.PATH:	${.CURDIR}/../../../llvm/clang/lib/StaticAnalyzer/Core
+.PATH:	${.CURDIR}/../../../llvm/clang/lib/StaticAnalyzer/Frontend
+
+install:
+	@# Nothing here so far ...
+
+.include <bsd.lib.mk>

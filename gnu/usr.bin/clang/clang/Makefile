@@ -43,6 +43,11 @@ LLVM_LIBDEPS=	LLVM \
 		clangEdit \
 		clangAST \
 		clangLex \
-		clangBasic
+		clangBasic \
+		clangStaticAnalyzer \
+		clangCrossTU \
+		clangASTMatchers \
+		clangIndex \
+		clangTooling \
 
 .include <bsd.prog.mk>
