@@ -1747,6 +1747,12 @@ ikev2_frags_reassemble(struct iked *env, struct ikev2_payload *pld,
 	    sa_frag->frag_total_size);
 	print_hex(ibuf_data(e), 0,  sa_frag->frag_total_size);
 
+	/* Drop the original request's packets from the retransmit queue */
+	if (msg->msg_response)
+		ikev2_msg_dispose(env, &msg->msg_sa->sa_requests,
+		    ikev2_msg_lookup(env, &msg->msg_sa->sa_requests, msg,
+		    msg->msg_exchange));
+
 	/*
 	 * Parse decrypted payload
 	 */
