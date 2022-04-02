@@ -37,6 +37,7 @@
 
 #include "iked.h"
 #include "ikev2.h"
+#include "chap_ms.h"
 #include "eap.h"
 
 int	 eap_message_send(struct iked *, struct iked_sa *, int, int);
@@ -214,6 +215,71 @@ eap_challenge_request(struct iked *env, struct iked_sa *sa,
  done:
 	ibuf_release(e);
 	return (ret);
+}
+
+int
+eap_handle_challenge_response(struct iked *env, struct iked_sa *sa,
+    struct eap_msg *eap)
+{
+	uint8_t			 successmsg[EAP_MSCHAP_SUCCESS_SZ];
+	uint8_t			 ntresponse[EAP_MSCHAP_NTRESPONSE_SZ];
+	struct iked_user	*usr;
+	char			*name = NULL;
+	uint8_t			*pass;
+	size_t			 passlen;
+
+	if (eap->eam_user) {
+		name = eap->eam_user;
+	} else if (sa->sa_eapid) {
+		name = sa->sa_eapid;
+	}
+	if (name == NULL) {
+		log_info("%s: invalid response name",
+		    SPI_SA(sa, __func__));
+		return (-1);
+	}
+	if ((usr = user_lookup(env, name)) == NULL) {
+		log_info("%s: unknown user '%s'", SPI_SA(sa, __func__),
+		    name);
+		return (-1);
+	}
+
+	if ((pass = string2unicode(usr->usr_pass, &passlen)) == NULL)
+		return (-1);
+
+	mschap_nt_response(ibuf_data(sa->sa_eap.id_buf),
+	    eap->eam_challenge, usr->usr_name, strlen(usr->usr_name),
+	    pass, passlen, ntresponse);
+
+	if (memcmp(ntresponse, eap->eam_ntresponse,
+	    sizeof(ntresponse)) != 0) {
+		log_info("%s: '%s' authentication failed",
+		   SPI_SA(sa, __func__), usr->usr_name);
+		freezero(pass, passlen);
+
+		/* XXX should we send an EAP failure packet? */
+		return (-1);
+	}
+
+	bzero(&successmsg, sizeof(successmsg));
+
+	mschap_auth_response(pass, passlen,
+	    ntresponse, ibuf_data(sa->sa_eap.id_buf),
+	    eap->eam_challenge, usr->usr_name, strlen(usr->usr_name),
+	    successmsg);
+	if ((sa->sa_eapmsk = ibuf_new(NULL, MSCHAP_MSK_SZ)) == NULL) {
+		log_info("%s: failed to get MSK", SPI_SA(sa, __func__));
+		freezero(pass, passlen);
+		return (-1);
+	}
+	mschap_msk(pass, passlen, ntresponse,
+	    ibuf_data(sa->sa_eapmsk));
+	freezero(pass, passlen);
+
+	log_info("%s: '%s' authenticated", __func__, usr->usr_name);
+
+	return (eap_mschap_challenge(env, sa, eap->eam_id, eap->eam_msrid,
+	    successmsg, EAP_MSCHAP_SUCCESS_SZ));
 }
 
 int

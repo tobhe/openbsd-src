@@ -1103,6 +1103,8 @@ int	 eap_mschap_challenge(struct iked *, struct iked_sa *, int, int,
 	    uint8_t *, size_t);
 int	 eap_mschap_success(struct iked *, struct iked_sa *, int);
 int	 eap_challenge_request(struct iked *, struct iked_sa *, int);
+int	 eap_handle_challenge_response(struct iked *, struct iked_sa *,
+	    struct eap_msg *);
 
 /* pfkey.c */
 int	 pfkey_couple(struct iked *, struct iked_sas *, int);
