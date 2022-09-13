@@ -245,6 +245,7 @@ struct wskbd_encoding_data {
 #define		WSMOUSE_TYPE_ELANTECH	18	/* Elantech touchpad */
 #define		WSMOUSE_TYPE_SYNAP_SBTN	19	/* Synaptics soft buttons */
 #define		WSMOUSE_TYPE_TOUCHPAD	20	/* Generic touchpad */
+#define		WSMOUSE_TYPE_APPLE	21	/* Apple touchpad */
 
 /* Set resolution.  Not applicable to all mouse types. */
 #define	WSMOUSEIO_SRES		_IOW('W', 33, u_int)
@@ -313,6 +314,7 @@ enum wsmousecfg {
 	WSMOUSECFG_SOFTBUTTONS = 64,	/* 2 soft-buttons at the bottom edge */
 	WSMOUSECFG_SOFTMBTN,		/* add a middle-button area */
 	WSMOUSECFG_TOPBUTTONS,		/* 3 soft-buttons at the top edge */
+	WSMOUSECFG_MTBUTTONS,		/* multi-finger buttons */
 	WSMOUSECFG_TWOFINGERSCROLL,	/* enable two-finger scrolling */
 	WSMOUSECFG_EDGESCROLL,		/* enable edge scrolling */
 	WSMOUSECFG_HORIZSCROLL,		/* enable horizontal edge scrolling */

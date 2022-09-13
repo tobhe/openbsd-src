@@ -72,6 +72,7 @@
 enum tpad_handlers {
 	SOFTBUTTON_HDLR,
 	TOPBUTTON_HDLR,
+	MTBUTTON_HDLR,
 	TAP_HDLR,
 	F2SCROLL_HDLR,
 	EDGESCROLL_HDLR,
@@ -149,6 +150,7 @@ struct tpad_touch {
 #define WSTPAD_HORIZSCROLL	(1 << 5)
 #define WSTPAD_SWAPSIDES	(1 << 6)
 #define WSTPAD_DISABLE		(1 << 7)
+#define WSTPAD_MTBUTTONS	(1 << 8)
 
 #define WSTPAD_MT		(1 << 31)
 
@@ -646,7 +648,23 @@ wstpad_softbuttons(struct wsmouseinput *input, u_int *cmds, int hdlr)
 	}
 
 	if (tp->softbutton == 0 && PRIMARYBTN_CLICKED(tp)) {
-		tp->softbutton = wstpad_get_sbtn(input, top);
+		if (hdlr == MTBUTTON_HDLR) {
+			switch (tp->contacts) {
+			case 2:
+				tp->softbutton = RIGHTBTN;
+				break;
+			case 3:
+				tp->softbutton = MIDDLEBTN;
+				break;
+			case 1:
+				tp->softbutton = LEFTBTN;
+				break;
+			default:
+				tp->softbutton = 0;
+				break;
+			}
+		} else
+			tp->softbutton = wstpad_get_sbtn(input, top);
 		if (tp->softbutton)
 			*cmds |= 1 << SOFTBUTTON_DOWN;
 	}
@@ -1237,12 +1255,14 @@ wstpad_process_input(struct wsmouseinput *input, struct evq_access *evq)
 	cmds = 0;
 	handlers = tp->handlers;
 	if (DISABLE(tp))
-		handlers &= ((1 << TOPBUTTON_HDLR) | (1 << SOFTBUTTON_HDLR));
+		handlers &= ((1 << TOPBUTTON_HDLR) | (1 << SOFTBUTTON_HDLR) |
+		    (1 << MTBUTTON_HDLR));
 
 	FOREACHBIT(handlers, hdlr) {
 		switch (hdlr) {
 		case SOFTBUTTON_HDLR:
 		case TOPBUTTON_HDLR:
+		case MTBUTTON_HDLR:
 			wstpad_softbuttons(input, &cmds, hdlr);
 			continue;
 		case TAP_HDLR:
@@ -1578,6 +1598,8 @@ wstpad_configure(struct wsmouseinput *input)
 		if (input->hw.hw_type == WSMOUSEHW_CLICKPAD) {
 			if (input->hw.type == WSMOUSE_TYPE_SYNAP_SBTN) {
 				tp->features |= WSTPAD_TOPBUTTONS;
+			} else if (input->hw.type == WSMOUSE_TYPE_APPLE) {
+				tp->features |= WSTPAD_MTBUTTONS;
 			} else {
 				tp->features |= WSTPAD_SOFTBUTTONS;
 				tp->features |= WSTPAD_SOFTMBTN;
@@ -1621,6 +1643,8 @@ wstpad_configure(struct wsmouseinput *input)
 
 	tp->handlers = 0;
 
+	if (tp->features & WSTPAD_MTBUTTONS)
+		tp->handlers |= 1 << MTBUTTON_HDLR;
 	if (tp->features & WSTPAD_SOFTBUTTONS)
 		tp->handlers |= 1 << SOFTBUTTON_HDLR;
 	if (tp->features & WSTPAD_TOPBUTTONS)
@@ -1701,6 +1725,9 @@ wstpad_set_param(struct wsmouseinput *input, int key, int val)
 			break;
 		case WSMOUSECFG_TOPBUTTONS:
 			flag = WSTPAD_TOPBUTTONS;
+			break;
+		case WSMOUSECFG_MTBUTTONS:
+			flag = WSTPAD_MTBUTTONS;
 			break;
 		case WSMOUSECFG_TWOFINGERSCROLL:
 			flag = WSTPAD_TWOFINGERSCROLL;
@@ -1795,6 +1822,9 @@ wstpad_get_param(struct wsmouseinput *input, int key, int *pval)
 			break;
 		case WSMOUSECFG_TOPBUTTONS:
 			flag = WSTPAD_TOPBUTTONS;
+			break;
+		case WSMOUSECFG_MTBUTTONS:
+			flag = WSTPAD_MTBUTTONS;
 			break;
 		case WSMOUSECFG_TWOFINGERSCROLL:
 			flag = WSTPAD_TWOFINGERSCROLL;

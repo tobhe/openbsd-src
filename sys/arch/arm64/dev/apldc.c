@@ -1363,7 +1363,7 @@ apldcms_configure(struct apldcms_softc *sc)
 	struct wsmousehw *hw = wsmouse_get_hw(sc->sc_wsmousedev);
 
 	/* The values below are for the MacBookPro17,1 */
-	hw->type = WSMOUSE_TYPE_TOUCHPAD;
+	hw->type = WSMOUSE_TYPE_APPLE;
 	hw->hw_type = WSMOUSEHW_CLICKPAD;
 	hw->x_min = -6046;
 	hw->x_max = 6536;
