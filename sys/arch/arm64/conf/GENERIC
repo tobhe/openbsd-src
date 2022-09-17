@@ -138,6 +138,7 @@ amdgpu*		at pci?
 drm*		at amdgpu?
 wsdisplay*	at amdgpu?
 
+gpiobl*		at fdt?
 gpiocharger*	at fdt?
 gpiokeys*	at fdt?
 gpioleds*	at fdt?

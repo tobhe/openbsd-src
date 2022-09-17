@@ -601,6 +601,10 @@ device	dapmic
 attach	dapmic at i2c
 file	dev/fdt/dapmic.c		dapmic
 
+device	gpiobl
+attach	gpiobl at fdt
+file	dev/fdt/gpiobl.c		gpiobl
+
 device	gpiocharger
 attach	gpiocharger at fdt
 file	dev/fdt/gpiocharger.c		gpiocharger
