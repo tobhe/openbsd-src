@@ -319,6 +319,7 @@ enum wsmousecfg {
 	WSMOUSECFG_SWAPSIDES,		/* invert soft-button/scroll areas */
 	WSMOUSECFG_DISABLE,		/* disable all output except for
 					   clicks in the top-button area */
+	WSMOUSECFG_MTBUTTONS,		/* multi-touch buttons */
 
 	/*
 	 * Touchpad options
@@ -340,6 +341,8 @@ enum wsmousecfg {
 	WSMOUSECFG_TAP_ONE_BTNMAP,	/* one-finger tap button mapping */
 	WSMOUSECFG_TAP_TWO_BTNMAP,	/* two-finger tap button mapping */
 	WSMOUSECFG_TAP_THREE_BTNMAP,	/* three-finger tap button mapping */
+	WSMOUSECFG_MTBTN_MAXDIST,	/* MTBUTTONS: distance limit for
+					   two-finger clicks */
 
 	/*
 	 * Enable/Disable debug output.
@@ -347,7 +350,7 @@ enum wsmousecfg {
 	WSMOUSECFG_LOG_INPUT = 256,
 	WSMOUSECFG_LOG_EVENTS,
 };
-#define WSMOUSECFG_MAX	41	/* max size of param array per ioctl */
+#define WSMOUSECFG_MAX	43	/* max size of param array per ioctl */
 
 struct wsmouse_param {
 	enum wsmousecfg key;

@@ -103,7 +103,7 @@ hidmt_get_resolution(struct hid_item *h)
 		phy_extent *= 10;
 	}
 
-	return (log_extent / phy_extent);
+	return ((log_extent + phy_extent / 2) / phy_extent);
 }
 
 int

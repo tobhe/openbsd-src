@@ -149,6 +149,7 @@ struct tpad_touch {
 #define WSTPAD_HORIZSCROLL	(1 << 5)
 #define WSTPAD_SWAPSIDES	(1 << 6)
 #define WSTPAD_DISABLE		(1 << 7)
+#define WSTPAD_MTBUTTONS	(1 << 8)
 
 #define WSTPAD_MT		(1 << 31)
 
@@ -201,6 +202,8 @@ struct wstpad {
 		/* two-finger contacts */
 		int f2pressure;
 		int f2width;
+		/* MTBUTTONS: distance limit for two-finger clicks */
+		int mtbtn_maxdist;
 	} params;
 
 	/* handler state and configuration: */
@@ -634,6 +637,37 @@ wstpad_get_sbtn(struct wsmouseinput *input, int top)
 	return (btn != PRIMARYBTN ? btn : 0);
 }
 
+int
+wstpad_mtbtn_contacts(struct wsmouseinput *input)
+{
+	struct wstpad *tp = input->tp;
+	struct tpad_touch *t;
+	int dx, dy, dist, limit;
+
+	if (tp->ignore != 0)
+		return (tp->contacts - 1);
+
+	if (tp->contacts == 2 && (t = get_2nd_touch(input)) != NULL) {
+		dx = abs(t->x - tp->t->x) << 12;
+		dy = abs(t->y - tp->t->y) * tp->ratio;
+		dist = (dx >= dy ? dx + 3 * dy / 8 : dy + 3 * dx / 8);
+		limit = tp->params.mtbtn_maxdist << 12;
+		if (input->mt.ptr_mask != 0)
+			limit = limit * 2 / 3;
+		if (dist > limit)
+			return (1);
+	}
+	return (tp->contacts);
+}
+
+u_int
+wstpad_get_mtbtn(struct wsmouseinput *input)
+{
+	int contacts = wstpad_mtbtn_contacts(input);
+	return (contacts == 2 ? RIGHTBTN : (contacts == 3 ? MIDDLEBTN : 0));
+}
+
+
 void
 wstpad_softbuttons(struct wsmouseinput *input, u_int *cmds, int hdlr)
 {
@@ -646,7 +680,8 @@ wstpad_softbuttons(struct wsmouseinput *input, u_int *cmds, int hdlr)
 	}
 
 	if (tp->softbutton == 0 && PRIMARYBTN_CLICKED(tp)) {
-		tp->softbutton = wstpad_get_sbtn(input, top);
+		tp->softbutton = ((tp->features & WSTPAD_MTBUTTONS)
+		    ? wstpad_get_mtbtn(input) : wstpad_get_sbtn(input, top));
 		if (tp->softbutton)
 			*cmds |= 1 << SOFTBUTTON_DOWN;
 	}
@@ -1599,6 +1634,15 @@ wstpad_configure(struct wsmouseinput *input)
 		tp->scroll.hdist = 4 * h_unit;
 		tp->scroll.vdist = 4 * v_unit;
 		tp->tap.maxdist = 4 * h_unit;
+
+		if (IS_MT(tp) && h_res > 1 && v_res > 1 &&
+		    input->hw.hw_type == WSMOUSEHW_CLICKPAD &&
+		    (width + h_res / 2) / h_res > 100 &&
+		    (height + v_res / 2) / v_res > 60) {
+			tp->params.mtbtn_maxdist = h_res * 35;
+		} else {
+			tp->params.mtbtn_maxdist = -1; /* not available */
+		}
 	}
 
 	/* A touch with a flag set in this mask does not move the pointer. */
@@ -1621,7 +1665,7 @@ wstpad_configure(struct wsmouseinput *input)
 
 	tp->handlers = 0;
 
-	if (tp->features & WSTPAD_SOFTBUTTONS)
+	if (tp->features & (WSTPAD_SOFTBUTTONS | WSTPAD_MTBUTTONS))
 		tp->handlers |= 1 << SOFTBUTTON_HDLR;
 	if (tp->features & WSTPAD_TOPBUTTONS)
 		tp->handlers |= 1 << TOPBUTTON_HDLR;
@@ -1685,13 +1729,14 @@ int
 wstpad_set_param(struct wsmouseinput *input, int key, int val)
 {
 	struct wstpad *tp = input->tp;
+	int w, h;
 	u_int flag;
 
 	if (tp == NULL)
 		return (EINVAL);
 
 	switch (key) {
-	case WSMOUSECFG_SOFTBUTTONS ... WSMOUSECFG_DISABLE:
+	case WSMOUSECFG_SOFTBUTTONS ... WSMOUSECFG_MTBUTTONS:
 		switch (key) {
 		case WSMOUSECFG_SOFTBUTTONS:
 			flag = WSTPAD_SOFTBUTTONS;
@@ -1716,6 +1761,9 @@ wstpad_set_param(struct wsmouseinput *input, int key, int val)
 			break;
 		case WSMOUSECFG_DISABLE:
 			flag = WSTPAD_DISABLE;
+			break;
+		case WSMOUSECFG_MTBUTTONS:
+			flag = (tp->params.mtbtn_maxdist >= 0 ? WSTPAD_MTBUTTONS : 0);
 			break;
 		}
 		if (val)
@@ -1768,6 +1816,16 @@ wstpad_set_param(struct wsmouseinput *input, int key, int val)
 	case WSMOUSECFG_TAP_THREE_BTNMAP:
 		tp->tap.btnmap[2] = BTNMASK(val);
 		break;
+	case WSMOUSECFG_MTBTN_MAXDIST:
+		if (IS_MT(tp)) {
+			if (tp->params.mtbtn_maxdist == -1 && val == 0) {
+				w = abs(input->hw.x_max - input->hw.x_min);
+				h = abs(input->hw.y_max - input->hw.y_min);
+				val = isqrt(w * w + h * h) / 4;
+			}
+			tp->params.mtbtn_maxdist = val;
+		}
+		break;
 	default:
 		return (ENOTSUP);
 	}
@@ -1785,7 +1843,7 @@ wstpad_get_param(struct wsmouseinput *input, int key, int *pval)
 		return (EINVAL);
 
 	switch (key) {
-	case WSMOUSECFG_SOFTBUTTONS ... WSMOUSECFG_DISABLE:
+	case WSMOUSECFG_SOFTBUTTONS ... WSMOUSECFG_MTBUTTONS:
 		switch (key) {
 		case WSMOUSECFG_SOFTBUTTONS:
 			flag = WSTPAD_SOFTBUTTONS;
@@ -1810,6 +1868,9 @@ wstpad_get_param(struct wsmouseinput *input, int key, int *pval)
 			break;
 		case WSMOUSECFG_DISABLE:
 			flag = WSTPAD_DISABLE;
+			break;
+		case WSMOUSECFG_MTBUTTONS:
+			flag = WSTPAD_MTBUTTONS;
 			break;
 		}
 		*pval = !!(tp->features & flag);
@@ -1858,6 +1919,9 @@ wstpad_get_param(struct wsmouseinput *input, int key, int *pval)
 		break;
 	case WSMOUSECFG_TAP_THREE_BTNMAP:
 		*pval = ffs(tp->tap.btnmap[2]);
+		break;
+	case WSMOUSECFG_MTBTN_MAXDIST:
+		*pval = tp->params.mtbtn_maxdist;
 		break;
 	default:
 		return (ENOTSUP);
