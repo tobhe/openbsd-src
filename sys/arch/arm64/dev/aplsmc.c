@@ -290,6 +290,11 @@ aplsmc_attach(struct device *parent, struct device *self, void *aux)
 	ntap = 1;
 	aplsmc_write_key(sc, SMC_KEY("NTAP"), &ntap, sizeof(ntap));
 
+#if 1
+	ntap = 1;
+	error = aplsmc_write_key(sc, SMC_KEY("CHWA"), &ntap, sizeof(ntap));
+#endif
+
 #ifndef SMALL_KERNEL
 
 	for (i = 0; i < nitems(aplsmc_sensors); i++) {
