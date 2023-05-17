@@ -363,9 +363,8 @@ sleep_setup(struct sleep_state *sls, const volatile void *ident, int prio,
 
 	p->p_wchan = ident;
 	p->p_wmesg = wmesg;
-	p->p_slptime = 0;
 	p->p_slppri = prio & PRIMASK;
-	TAILQ_INSERT_TAIL(&slpque[LOOKUP(ident)], p, p_runq);
+	TAILQ_INSERT_TAIL(&slpque[LOOKUP(ident)], p, p_slpq);
 
 	if (timo) {
 		KASSERT((p->p_flag & P_TIMEOUT) == 0);
@@ -516,7 +515,7 @@ unsleep(struct proc *p)
 	SCHED_ASSERT_LOCKED();
 
 	if (p->p_wchan != NULL) {
-		TAILQ_REMOVE(&slpque[LOOKUP(p->p_wchan)], p, p_runq);
+		TAILQ_REMOVE(&slpque[LOOKUP(p->p_wchan)], p, p_slpq);
 		p->p_wchan = NULL;
 		TRACEPOINT(sched, wakeup, p->p_tid + THREAD_PID_OFFSET,
 		    p->p_p->ps_pid);
@@ -537,7 +536,7 @@ wakeup_n(const volatile void *ident, int n)
 	SCHED_LOCK(s);
 	qp = &slpque[LOOKUP(ident)];
 	for (p = TAILQ_FIRST(qp); p != NULL && n != 0; p = pnext) {
-		pnext = TAILQ_NEXT(p, p_runq);
+		pnext = TAILQ_NEXT(p, p_slpq);
 		/*
 		 * This happens if wakeup(9) is called after enqueuing
 		 * itself on the sleep queue and both `ident' collide.
@@ -566,20 +565,10 @@ wakeup(const volatile void *chan)
 int
 sys_sched_yield(struct proc *p, void *v, register_t *retval)
 {
-	struct proc *q;
-	uint8_t newprio;
 	int s;
 
 	SCHED_LOCK(s);
-	/*
-	 * If one of the threads of a multi-threaded process called
-	 * sched_yield(2), drop its priority to ensure its siblings
-	 * can make some progress.
-	 */
-	newprio = p->p_usrpri;
-	TAILQ_FOREACH(q, &p->p_p->ps_threads, p_thr_link)
-		newprio = max(newprio, q->p_runpri);
-	setrunqueue(p->p_cpu, p, newprio);
+	setrunqueue(p->p_cpu, p, 0);
 	p->p_ru.ru_nvcsw++;
 	mi_switch();
 	SCHED_UNLOCK(s);

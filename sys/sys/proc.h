@@ -310,7 +310,8 @@ struct p_inentry {
  *	o	owned (read/modified only) by this thread
  */
 struct proc {
-	TAILQ_ENTRY(proc) p_runq;	/* [S] current run/sleep queue */
+	TAILQ_ENTRY(proc) p_runq;	/* [S] current run queue */
+	TAILQ_ENTRY(proc) p_slpq;	/* [S] current sleep queue */
 	LIST_ENTRY(proc) p_list;	/* List of all threads. */
 
 	struct	process *p_p;		/* [I] The process of this thread. */

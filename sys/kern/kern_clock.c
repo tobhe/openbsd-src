@@ -83,7 +83,6 @@
  */
 
 int	stathz;
-int	schedhz;
 int	profhz;
 int	profprocs;
 int	ticks = INT_MAX - (15 * 60 * HZ);
@@ -375,14 +374,6 @@ statclock(struct clockframe *frame)
 
 	if (p != NULL) {
 		p->p_cpticks++;
-		/*
-		 * If no schedclock is provided, call it here at ~~12-25 Hz;
-		 * ~~16 Hz is best
-		 */
-		if (schedhz == 0) {
-			if ((++spc->spc_schedticks & 3) == 0)
-				schedclock(p);
-		}
 	}
 }
 

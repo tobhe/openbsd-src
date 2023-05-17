@@ -121,7 +121,6 @@
 extern struct forkstat forkstat;
 extern struct nchstats nchstats;
 extern int fscale;
-extern fixpt_t ccpu;
 extern long numvnodes;
 extern int allowdt;
 extern int audio_record_enable;
@@ -340,7 +339,6 @@ const struct sysctl_bounded_args kern_vars[] = {
 #endif
 	 SYSCTL_INT_READONLY},
 	{KERN_FSCALE, &fscale, SYSCTL_INT_READONLY},
-	{KERN_CCPU, &ccpu, SYSCTL_INT_READONLY},
 	{KERN_NPROCS, &nprocesses, SYSCTL_INT_READONLY},
 	{KERN_SPLASSERT, &splassert_ctl, 0, 3},
 	{KERN_MAXLOCKSPERUID, &maxlocksperuid, 0, INT_MAX},

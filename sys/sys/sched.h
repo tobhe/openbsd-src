@@ -97,21 +97,18 @@ struct smr_entry;
  */
 struct schedstate_percpu {
 	struct proc *spc_idleproc;	/* idle proc for this cpu */
-	TAILQ_HEAD(prochead, proc) spc_qs[SCHED_NQS];
 	LIST_HEAD(,proc) spc_deadproc;
 	struct timespec spc_runtime;	/* time curproc started running */
 	volatile int spc_schedflags;	/* flags; see below */
-	u_int spc_schedticks;		/* ticks for schedclock() */
 	u_int64_t spc_cp_time[CPUSTATES]; /* CPU state statistics */
 	u_char spc_curpriority;		/* usrpri of curproc */
 	int spc_rrticks;		/* ticks until roundrobin() */
 	int spc_pscnt;			/* prof/stat counter */
 	int spc_psdiv;			/* prof/stat divisor */	
 
-	u_int spc_nrun;			/* procs on the run queues */
 	fixpt_t spc_ldavg;		/* shortest load avg. for this cpu */
 
-	volatile uint32_t spc_whichqs;
+	int __pad;			/* XXX for amd64 cpu_info align. */
 	volatile u_int spc_spinning;	/* this cpu is currently spinning */
 
 	SIMPLEQ_HEAD(, smr_entry) spc_deferred; /* deferred smr calls */
@@ -142,11 +139,9 @@ struct cpustats {
 #define NICE_WEIGHT 2			/* priorities per nice level */
 #define	ESTCPULIM(e) min((e), NICE_WEIGHT * PRIO_MAX - SCHED_PPQ)
 
-extern int schedhz;			/* ideally: 16 */
 extern int rrticks_init;		/* ticks per roundrobin() */
 
 struct proc;
-void schedclock(struct proc *);
 struct cpu_info;
 void roundrobin(struct cpu_info *);
 void scheduler_start(void);
@@ -159,7 +154,6 @@ void mi_switch(void);
 void cpu_switchto(struct proc *, struct proc *);
 struct proc *sched_chooseproc(void);
 struct cpu_info *sched_choosecpu(struct proc *);
-struct cpu_info *sched_choosecpu_fork(struct proc *parent, int);
 void cpu_idle_enter(void);
 void cpu_idle_cycle(void);
 void cpu_idle_leave(void);
@@ -176,7 +170,9 @@ void sched_start_secondary_cpus(void);
 void sched_stop_secondary_cpus(void);
 #endif
 
-#define cpu_is_idle(ci)	((ci)->ci_schedstate.spc_whichqs == 0)
+#define cpu_is_idle(ci)	(!cpu_haswork(ci))
+
+int	cpu_haswork(struct cpu_info *);
 int	cpu_is_online(struct cpu_info *);
 
 void sched_init_runqueues(void);

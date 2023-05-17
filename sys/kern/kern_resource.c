@@ -197,8 +197,6 @@ int
 donice(struct proc *curp, struct process *chgpr, int n)
 {
 	struct ucred *ucred = curp->p_ucred;
-	struct proc *p;
-	int s;
 
 	if (ucred->cr_uid != 0 && ucred->cr_ruid != 0 &&
 	    ucred->cr_uid != chgpr->ps_ucred->cr_uid &&
@@ -212,11 +210,9 @@ donice(struct proc *curp, struct process *chgpr, int n)
 	if (n < chgpr->ps_nice && suser(curp))
 		return (EACCES);
 	chgpr->ps_nice = n;
-	SCHED_LOCK(s);
-	TAILQ_FOREACH(p, &chgpr->ps_threads, p_thr_link) {
-		setpriority(p, p->p_estcpu, n);
-	}
-	SCHED_UNLOCK(s);
+	/*
+	 * Silently ignore it.
+	 */
 	return (0);
 }
 

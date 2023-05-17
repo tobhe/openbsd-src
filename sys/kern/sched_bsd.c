@@ -61,9 +61,6 @@ int	rrticks_init;		/* # of hardclock ticks per roundrobin() */
 struct __mp_lock sched_lock;
 #endif
 
-void			schedcpu(void *);
-uint32_t		decay_aftersleep(uint32_t, uint32_t);
-
 /*
  * Force switch among equal priority processes every 100ms.
  */
@@ -89,178 +86,18 @@ roundrobin(struct cpu_info *ci)
 		}
 	}
 
-	if (spc->spc_nrun)
+	if (cpu_haswork(ci))
 		need_resched(ci);
 }
 
-/*
- * Constants for digital decay and forget:
- *	90% of (p_estcpu) usage in 5 * loadav time
- *	95% of (p_pctcpu) usage in 60 seconds (load insensitive)
- *          Note that, as ps(1) mentions, this can let percentages
- *          total over 100% (I've seen 137.9% for 3 processes).
- *
- * Note that hardclock updates p_estcpu and p_cpticks independently.
- *
- * We wish to decay away 90% of p_estcpu in (5 * loadavg) seconds.
- * That is, the system wants to compute a value of decay such
- * that the following for loop:
- * 	for (i = 0; i < (5 * loadavg); i++)
- * 		p_estcpu *= decay;
- * will compute
- * 	p_estcpu *= 0.1;
- * for all values of loadavg:
- *
- * Mathematically this loop can be expressed by saying:
- * 	decay ** (5 * loadavg) ~= .1
- *
- * The system computes decay as:
- * 	decay = (2 * loadavg) / (2 * loadavg + 1)
- *
- * We wish to prove that the system's computation of decay
- * will always fulfill the equation:
- * 	decay ** (5 * loadavg) ~= .1
- *
- * If we compute b as:
- * 	b = 2 * loadavg
- * then
- * 	decay = b / (b + 1)
- *
- * We now need to prove two things:
- *	1) Given factor ** (5 * loadavg) ~= .1, prove factor == b/(b+1)
- *	2) Given b/(b+1) ** power ~= .1, prove power == (5 * loadavg)
- *
- * Facts:
- *         For x close to zero, exp(x) =~ 1 + x, since
- *              exp(x) = 0! + x**1/1! + x**2/2! + ... .
- *              therefore exp(-1/b) =~ 1 - (1/b) = (b-1)/b.
- *         For x close to zero, ln(1+x) =~ x, since
- *              ln(1+x) = x - x**2/2 + x**3/3 - ...     -1 < x < 1
- *              therefore ln(b/(b+1)) = ln(1 - 1/(b+1)) =~ -1/(b+1).
- *         ln(.1) =~ -2.30
- *
- * Proof of (1):
- *    Solve (factor)**(power) =~ .1 given power (5*loadav):
- *	solving for factor,
- *      ln(factor) =~ (-2.30/5*loadav), or
- *      factor =~ exp(-1/((5/2.30)*loadav)) =~ exp(-1/(2*loadav)) =
- *          exp(-1/b) =~ (b-1)/b =~ b/(b+1).                    QED
- *
- * Proof of (2):
- *    Solve (factor)**(power) =~ .1 given factor == (b/(b+1)):
- *	solving for power,
- *      power*ln(b/(b+1)) =~ -2.30, or
- *      power =~ 2.3 * (b + 1) = 4.6*loadav + 2.3 =~ 5*loadav.  QED
- *
- * Actual power values for the implemented algorithm are as follows:
- *      loadav: 1       2       3       4
- *      power:  5.68    10.32   14.94   19.55
- */
-
-/* calculations for digital decay to forget 90% of usage in 5*loadav sec */
-#define	loadfactor(loadav)	(2 * (loadav))
-#define	decay_cpu(loadfac, cpu)	(((loadfac) * (cpu)) / ((loadfac) + FSCALE))
-
-/* decay 95% of `p_pctcpu' in 60 seconds; see CCPU_SHIFT before changing */
-fixpt_t	ccpu = 0.95122942450071400909 * FSCALE;		/* exp(-1/20) */
-
-/*
- * If `ccpu' is not equal to `exp(-1/20)' and you still want to use the
- * faster/more-accurate formula, you'll have to estimate CCPU_SHIFT below
- * and possibly adjust FSHIFT in "param.h" so that (FSHIFT >= CCPU_SHIFT).
- *
- * To estimate CCPU_SHIFT for exp(-1/20), the following formula was used:
- *	1 - exp(-1/20) ~= 0.0487 ~= 0.0488 == 1 (fixed pt, *11* bits).
- *
- * If you don't want to bother with the faster/more-accurate formula, you
- * can set CCPU_SHIFT to (FSHIFT + 1) which will use a slower/less-accurate
- * (more general) method of calculating the %age of CPU used by a process.
- */
-#define	CCPU_SHIFT	11
-
-/*
- * Recompute process priorities, every second.
- */
 void
-schedcpu(void *arg)
+everysecond(void *arg)
 {
 	struct timeout *to = (struct timeout *)arg;
-	fixpt_t loadfac = loadfactor(averunnable.ldavg[0]);
-	struct proc *p;
-	int s;
-	unsigned int newcpu;
 
-	LIST_FOREACH(p, &allproc, p_list) {
-		/*
-		 * Idle threads are never placed on the runqueue,
-		 * therefore computing their priority is pointless.
-		 */
-		if (p->p_cpu != NULL &&
-		    p->p_cpu->ci_schedstate.spc_idleproc == p)
-			continue;
-		/*
-		 * Increment sleep time (if sleeping). We ignore overflow.
-		 */
-		if (p->p_stat == SSLEEP || p->p_stat == SSTOP)
-			p->p_slptime++;
-		p->p_pctcpu = (p->p_pctcpu * ccpu) >> FSHIFT;
-		/*
-		 * If the process has slept the entire second,
-		 * stop recalculating its priority until it wakes up.
-		 */
-		if (p->p_slptime > 1)
-			continue;
-		SCHED_LOCK(s);
-		/*
-		 * p_pctcpu is only for diagnostic tools such as ps.
-		 */
-#if	(FSHIFT >= CCPU_SHIFT)
-		p->p_pctcpu += (stathz == 100)?
-			((fixpt_t) p->p_cpticks) << (FSHIFT - CCPU_SHIFT):
-                	100 * (((fixpt_t) p->p_cpticks)
-				<< (FSHIFT - CCPU_SHIFT)) / stathz;
-#else
-		p->p_pctcpu += ((FSCALE - ccpu) *
-			(p->p_cpticks * FSCALE / stathz)) >> FSHIFT;
-#endif
-		p->p_cpticks = 0;
-		newcpu = (u_int) decay_cpu(loadfac, p->p_estcpu);
-		setpriority(p, newcpu, p->p_p->ps_nice);
-
-		if (p->p_stat == SRUN &&
-		    (p->p_runpri / SCHED_PPQ) != (p->p_usrpri / SCHED_PPQ)) {
-			remrunqueue(p);
-			setrunqueue(p->p_cpu, p, p->p_usrpri);
-		}
-		SCHED_UNLOCK(s);
-	}
 	uvm_meter();
 	wakeup(&lbolt);
 	timeout_add_sec(to, 1);
-}
-
-/*
- * Recalculate the priority of a process after it has slept for a while.
- * For all load averages >= 1 and max p_estcpu of 255, sleeping for at
- * least six times the loadfactor will decay p_estcpu to zero.
- */
-uint32_t
-decay_aftersleep(uint32_t estcpu, uint32_t slptime)
-{
-	fixpt_t loadfac = loadfactor(averunnable.ldavg[0]);
-	uint32_t newcpu;
-
-	if (slptime > 5 * loadfac)
-		newcpu = 0;
-	else {
-		newcpu = estcpu;
-		slptime--;	/* the first time was done in schedcpu */
-		while (newcpu && --slptime)
-			newcpu = decay_cpu(loadfac, newcpu);
-
-	}
-
-	return (newcpu);
 }
 
 /*
@@ -274,7 +111,7 @@ yield(void)
 	int s;
 
 	SCHED_LOCK(s);
-	setrunqueue(p->p_cpu, p, p->p_usrpri);
+	setrunqueue(p->p_cpu, p, 0);
 	p->p_ru.ru_nvcsw++;
 	mi_switch();
 	SCHED_UNLOCK(s);
@@ -293,7 +130,7 @@ preempt(void)
 	int s;
 
 	SCHED_LOCK(s);
-	setrunqueue(p->p_cpu, p, p->p_usrpri);
+	setrunqueue(p->p_cpu, p, 0);
 	p->p_ru.ru_nivcsw++;
 	mi_switch();
 	SCHED_UNLOCK(s);
@@ -415,7 +252,6 @@ void
 setrunnable(struct proc *p)
 {
 	struct process *pr = p->p_p;
-	u_char prio;
 
 	SCHED_ASSERT_LOCKED();
 
@@ -434,68 +270,14 @@ setrunnable(struct proc *p)
 		 */
 		if ((pr->ps_flags & PS_TRACED) != 0 && pr->ps_xsig != 0)
 			atomic_setbits_int(&p->p_siglist, sigmask(pr->ps_xsig));
-		prio = p->p_usrpri;
 		unsleep(p);
+		setrunqueue(NULL, p, 0);
 		break;
 	case SSLEEP:
-		prio = p->p_slppri;
 		unsleep(p);		/* e.g. when sending signals */
+		setrunqueue(NULL, p, 1);
 		break;
 	}
-	setrunqueue(NULL, p, prio);
-	if (p->p_slptime > 1) {
-		uint32_t newcpu;
-
-		newcpu = decay_aftersleep(p->p_estcpu, p->p_slptime);
-		setpriority(p, newcpu, pr->ps_nice);
-	}
-	p->p_slptime = 0;
-}
-
-/*
- * Compute the priority of a process.
- */
-void
-setpriority(struct proc *p, uint32_t newcpu, uint8_t nice)
-{
-	unsigned int newprio;
-
-	newprio = min((PUSER + newcpu + NICE_WEIGHT * (nice - NZERO)), MAXPRI);
-
-	SCHED_ASSERT_LOCKED();
-	p->p_estcpu = newcpu;
-	p->p_usrpri = newprio;
-}
-
-/*
- * We adjust the priority of the current process.  The priority of a process
- * gets worse as it accumulates CPU time.  The cpu usage estimator (p_estcpu)
- * is increased here.  The formula for computing priorities (in kern_synch.c)
- * will compute a different value each time p_estcpu increases. This can
- * cause a switch, but unless the priority crosses a PPQ boundary the actual
- * queue will not change.  The cpu usage estimator ramps up quite quickly
- * when the process is running (linearly), and decays away exponentially, at
- * a rate which is proportionally slower when the system is busy.  The basic
- * principle is that the system will 90% forget that the process used a lot
- * of CPU time in 5 * loadav seconds.  This causes the system to favor
- * processes which haven't run much recently, and to round-robin among other
- * processes.
- */
-void
-schedclock(struct proc *p)
-{
-	struct cpu_info *ci = curcpu();
-	struct schedstate_percpu *spc = &ci->ci_schedstate;
-	uint32_t newcpu;
-	int s;
-
-	if (p == spc->spc_idleproc || spc->spc_spinning)
-		return;
-
-	SCHED_LOCK(s);
-	newcpu = ESTCPULIM(p->p_estcpu + 1);
-	setpriority(p, newcpu, p->p_p->ps_nice);
-	SCHED_UNLOCK(s);
 }
 
 void (*cpu_setperf)(int);
@@ -657,22 +439,15 @@ sysctl_hwperfpolicy(void *oldp, size_t *oldlenp, void *newp, size_t newlen)
 void
 scheduler_start(void)
 {
-	static struct timeout schedcpu_to;
-
-	/*
-	 * We avoid polluting the global namespace by keeping the scheduler
-	 * timeouts static in this function.
-	 * We setup the timeout here and kick schedcpu once to make it do
-	 * its job.
-	 */
-	timeout_set(&schedcpu_to, schedcpu, &schedcpu_to);
+	static struct timeout onesec_to;
 
 	rrticks_init = hz / 10;
-	schedcpu(&schedcpu_to);
+
+	timeout_set(&onesec_to, everysecond, &onesec_to);
+	everysecond(&onesec_to);
 
 #ifndef SMALL_KERNEL
 	if (perfpolicy == PERFPOL_AUTO)
 		timeout_add_msec(&setperf_to, 200);
 #endif
 }
-

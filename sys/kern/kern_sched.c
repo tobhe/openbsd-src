@@ -29,8 +29,8 @@
 
 void sched_kthreads_create(void *);
 
-int sched_proc_to_cpu_cost(struct cpu_info *ci, struct proc *p);
-struct proc *sched_steal_proc(struct cpu_info *);
+TAILQ_HEAD(prochead, proc)	sched_qs;
+volatile unsigned int		sched_nrun;	/* procs on the run queues */
 
 /*
  * To help choosing which cpu should run which process we keep track
@@ -70,6 +70,12 @@ int sched_smt;
  * interrupts during the context switch.
  */
 
+int
+cpu_haswork(struct cpu_info *ci)
+{
+	return (sched_nrun > 0);
+}
+
 /*
  * sched_init_cpu is called from main() for the boot cpu, then it's the
  * responsibility of the MD code to call it for all other cpus.
@@ -78,10 +84,6 @@ void
 sched_init_cpu(struct cpu_info *ci)
 {
 	struct schedstate_percpu *spc = &ci->ci_schedstate;
-	int i;
-
-	for (i = 0; i < SCHED_NQS; i++)
-		TAILQ_INIT(&spc->spc_qs[i]);
 
 	spc->spc_idleproc = NULL;
 
@@ -152,7 +154,7 @@ sched_idle(void *v)
 	KASSERT(curproc == spc->spc_idleproc);
 
 	while (1) {
-		while (!cpu_is_idle(curcpu())) {
+		while (!cpu_is_idle(ci)) {
 			struct proc *dead;
 
 			SCHED_LOCK(s);
@@ -172,15 +174,13 @@ sched_idle(void *v)
 
 		cpuset_add(&sched_idle_cpus, ci);
 		cpu_idle_enter();
-		while (spc->spc_whichqs == 0) {
+		while (cpu_is_idle(ci)) {
 #ifdef MULTIPROCESSOR
 			if (spc->spc_schedflags & SPCF_SHOULDHALT &&
 			    (spc->spc_schedflags & SPCF_HALTED) == 0) {
 				cpuset_del(&sched_idle_cpus, ci);
-				SCHED_LOCK(s);
 				atomic_setbits_int(&spc->spc_schedflags,
-				    spc->spc_whichqs ? 0 : SPCF_HALTED);
-				SCHED_UNLOCK(s);
+				    cpu_haswork(ci) ? 0 : SPCF_HALTED);
 				wakeup(spc);
 			}
 #endif
@@ -235,81 +235,88 @@ sched_exit(struct proc *p)
 void
 sched_init_runqueues(void)
 {
+	TAILQ_INIT(&sched_qs);
+
 }
 
 void
-setrunqueue(struct cpu_info *ci, struct proc *p, uint8_t prio)
+sched_kick_cpu(struct cpu_info *ci, struct proc *p, uint8_t sleep)
 {
-	struct schedstate_percpu *spc;
-	int queue = prio >> 2;
-
 	if (ci == NULL)
 		ci = sched_choosecpu(p);
 
 	KASSERT(ci != NULL);
+	if (cpuset_isset(&sched_idle_cpus, ci))
+		cpu_unidle(ci);
+
+	if (sleep)
+		need_resched(ci);
+}
+
+void
+setrunqueue(struct cpu_info *ci, struct proc *p, uint8_t sleep)
+{
+#if DIAGNOSTIC
+	struct proc *q;
+
+	TAILQ_FOREACH(q, &sched_qs, p_runq) {
+		if (p == q)
+			panic("thread %d already on queue", p->p_tid);
+	}
+#endif
+	KASSERT(p->p_stat != SRUN);
+
 	SCHED_ASSERT_LOCKED();
-
-	p->p_cpu = ci;
-	p->p_stat = SRUN;
-	p->p_runpri = prio;
-
-	spc = &p->p_cpu->ci_schedstate;
-	spc->spc_nrun++;
+	sched_nrun++;
 	TRACEPOINT(sched, enqueue, p->p_tid + THREAD_PID_OFFSET,
 	    p->p_p->ps_pid);
 
-	TAILQ_INSERT_TAIL(&spc->spc_qs[queue], p, p_runq);
-	spc->spc_whichqs |= (1U << queue);
-	cpuset_add(&sched_queued_cpus, p->p_cpu);
+	if (sleep)
+		TAILQ_INSERT_HEAD(&sched_qs, p, p_runq);
+	else
+		TAILQ_INSERT_TAIL(&sched_qs, p, p_runq);
+	p->p_stat = SRUN;
 
-	if (cpuset_isset(&sched_idle_cpus, p->p_cpu))
-		cpu_unidle(p->p_cpu);
-
-	if (prio < spc->spc_curpriority)
-		need_resched(ci);
+#if 1
+	sched_kick_cpu(ci, p, sleep);
+#endif
 }
 
 void
 remrunqueue(struct proc *p)
 {
-	struct schedstate_percpu *spc;
-	int queue = p->p_runpri >> 2;
+#if DIAGNOSTIC
+	struct proc *q;
+
+	TAILQ_FOREACH(q, &sched_qs, p_runq) {
+		if (p == q)
+			break;
+	}
+	if (q == NULL)
+		panic("thread %d not on queue", p->p_tid);
+#endif
 
 	SCHED_ASSERT_LOCKED();
-	spc = &p->p_cpu->ci_schedstate;
-	spc->spc_nrun--;
+	sched_nrun--;
 	TRACEPOINT(sched, dequeue, p->p_tid + THREAD_PID_OFFSET,
 	    p->p_p->ps_pid);
 
-	TAILQ_REMOVE(&spc->spc_qs[queue], p, p_runq);
-	if (TAILQ_EMPTY(&spc->spc_qs[queue])) {
-		spc->spc_whichqs &= ~(1U << queue);
-		if (spc->spc_whichqs == 0)
-			cpuset_del(&sched_queued_cpus, p->p_cpu);
-	}
+	TAILQ_REMOVE(&sched_qs, p, p_runq);
 }
 
 struct proc *
 sched_chooseproc(void)
 {
 	struct schedstate_percpu *spc = &curcpu()->ci_schedstate;
-	struct proc *p;
-	int queue;
+	struct proc *p = NULL;
 
 	SCHED_ASSERT_LOCKED();
 
 #ifdef MULTIPROCESSOR
 	if (spc->spc_schedflags & SPCF_SHOULDHALT) {
-		if (spc->spc_whichqs) {
-			for (queue = 0; queue < SCHED_NQS; queue++) {
-				while ((p = TAILQ_FIRST(&spc->spc_qs[queue]))) {
-					remrunqueue(p);
-					setrunqueue(NULL, p, p->p_runpri);
-					if (p->p_cpu == curcpu()) {
-						KASSERT(p->p_flag & P_CPUPEG);
-						goto again;
-					}
-				}
+		TAILQ_FOREACH(p, &sched_qs, p_runq) {
+			if ((p->p_flag & P_CPUPEG) && (p->p_cpu == curcpu())) {
+				goto again;
 			}
 		}
 		p = spc->spc_idleproc;
@@ -321,14 +328,27 @@ sched_chooseproc(void)
 #endif
 
 again:
-	if (spc->spc_whichqs) {
-		queue = ffs(spc->spc_whichqs) - 1;
-		p = TAILQ_FIRST(&spc->spc_qs[queue]);
+	if (sched_nrun > 0) {
+		TAILQ_FOREACH(p, &sched_qs, p_runq) {
+			KASSERT(p->p_stat == SRUN);
+			if ((p->p_flag & P_CPUPEG) && (p->p_cpu != curcpu())) {
+				continue;
+			}
+			break;
+		}
+	}
+
+	if (p != NULL) {
 		remrunqueue(p);
-		sched_noidle++;
+		if (p->p_cpu != curcpu()) {
+			sched_stolen++;
+			p->p_cpu = curcpu();
+		} else {
+			sched_noidle++;
+		}
 		if (p->p_stat != SRUN)
 			panic("thread %d not in SRUN: %d", p->p_tid, p->p_stat);
-	} else if ((p = sched_steal_proc(curcpu())) == NULL) {
+	} else {
 		p = spc->spc_idleproc;
 		if (p == NULL) {
                         int s;
@@ -347,75 +367,17 @@ again:
                 }
 		KASSERT(p);
 		p->p_stat = SRUN;
-	} 
+	}
 
 	KASSERT(p->p_wchan == NULL);
 	return (p);
 }
 
 struct cpu_info *
-sched_choosecpu_fork(struct proc *parent, int flags)
-{
-#ifdef MULTIPROCESSOR
-	struct cpu_info *choice = NULL;
-	fixpt_t load, best_load = ~0;
-	int run, best_run = INT_MAX;
-	struct cpu_info *ci;
-	struct cpuset set;
-
-#if 0
-	/*
-	 * XXX
-	 * Don't do this until we have a painless way to move the cpu in exec.
-	 * Preferably when nuking the old pmap and getting a new one on a
-	 * new cpu.
-	 */
-	/*
-	 * PPWAIT forks are simple. We know that the parent will not
-	 * run until we exec and choose another cpu, so we just steal its
-	 * cpu.
-	 */
-	if (flags & FORK_PPWAIT)
-		return (parent->p_cpu);
-#endif
-
-	/*
-	 * Look at all cpus that are currently idle and have nothing queued.
-	 * If there are none, pick the one with least queued procs first,
-	 * then the one with lowest load average.
-	 */
-	cpuset_complement(&set, &sched_queued_cpus, &sched_idle_cpus);
-	cpuset_intersection(&set, &set, &sched_all_cpus);
-	if (cpuset_first(&set) == NULL)
-		cpuset_copy(&set, &sched_all_cpus);
-
-	while ((ci = cpuset_first(&set)) != NULL) {
-		cpuset_del(&set, ci);
-
-		load = ci->ci_schedstate.spc_ldavg;
-		run = ci->ci_schedstate.spc_nrun;
-
-		if (choice == NULL || run < best_run ||
-		    (run == best_run &&load < best_load)) {
-			choice = ci;
-			best_load = load;
-			best_run = run;
-		}
-	}
-
-	return (choice);
-#else
-	return (curcpu());
-#endif
-}
-
-struct cpu_info *
 sched_choosecpu(struct proc *p)
 {
 #ifdef MULTIPROCESSOR
-	struct cpu_info *choice = NULL;
-	int last_cost = INT_MAX;
-	struct cpu_info *ci;
+	struct cpu_info *choice;
 	struct cpuset set;
 
 	/*
@@ -427,13 +389,9 @@ sched_choosecpu(struct proc *p)
 	sched_choose++;
 
 	/*
-	 * Look at all cpus that are currently idle and have nothing queued.
-	 * If there are none, pick the cheapest of those.
-	 * (idle + queued could mean that the cpu is handling an interrupt
-	 * at this moment and haven't had time to leave idle yet).
+	 * Look at all cpus that are currently idle.
 	 */
-	cpuset_complement(&set, &sched_queued_cpus, &sched_idle_cpus);
-	cpuset_intersection(&set, &set, &sched_all_cpus);
+	cpuset_intersection(&set, &sched_idle_cpus, &sched_all_cpus);
 
 	/*
 	 * First, just check if our current cpu is in that set, if it is,
@@ -442,7 +400,7 @@ sched_choosecpu(struct proc *p)
 	 * and it has nothing else queued and we're curproc, take it.
 	 */
 	if (cpuset_isset(&set, p->p_cpu) ||
-	    (p->p_cpu == curcpu() && p->p_cpu->ci_schedstate.spc_nrun == 0 &&
+	    (p->p_cpu == curcpu() && !cpu_haswork(curcpu()) &&
 	    (p->p_cpu->ci_schedstate.spc_schedflags & SPCF_SHOULDHALT) == 0 &&
 	    curproc == p)) {
 		sched_wasidle++;
@@ -452,15 +410,7 @@ sched_choosecpu(struct proc *p)
 	if (cpuset_first(&set) == NULL)
 		cpuset_copy(&set, &sched_all_cpus);
 
-	while ((ci = cpuset_first(&set)) != NULL) {
-		int cost = sched_proc_to_cpu_cost(ci, p);
-
-		if (choice == NULL || cost < last_cost) {
-			choice = ci;
-			last_cost = cost;
-		}
-		cpuset_del(&set, ci);
-	}
+	choice = cpuset_first(&set);
 
 	if (p->p_cpu != choice)
 		sched_nmigrations++;
@@ -474,142 +424,6 @@ sched_choosecpu(struct proc *p)
 }
 
 /*
- * Attempt to steal a proc from some cpu.
- */
-struct proc *
-sched_steal_proc(struct cpu_info *self)
-{
-	struct proc *best = NULL;
-#ifdef MULTIPROCESSOR
-	struct schedstate_percpu *spc;
-	int bestcost = INT_MAX;
-	struct cpu_info *ci;
-	struct cpuset set;
-
-	KASSERT((self->ci_schedstate.spc_schedflags & SPCF_SHOULDHALT) == 0);
-
-	/* Don't steal if we don't want to schedule processes in this CPU. */
-	if (!cpuset_isset(&sched_all_cpus, self))
-		return (NULL);
-
-	cpuset_copy(&set, &sched_queued_cpus);
-
-	while ((ci = cpuset_first(&set)) != NULL) {
-		struct proc *p;
-		int queue;
-		int cost;
-
-		cpuset_del(&set, ci);
-
-		spc = &ci->ci_schedstate;
-
-		queue = ffs(spc->spc_whichqs) - 1;
-		TAILQ_FOREACH(p, &spc->spc_qs[queue], p_runq) {
-			if (p->p_flag & P_CPUPEG)
-				continue;
-
-			cost = sched_proc_to_cpu_cost(self, p);
-
-			if (best == NULL || cost < bestcost) {
-				best = p;
-				bestcost = cost;
-			}
-		}
-	}
-	if (best == NULL)
-		return (NULL);
-
-	remrunqueue(best);
-	best->p_cpu = self;
-
-	sched_stolen++;
-#endif
-	return (best);
-}
-
-#ifdef MULTIPROCESSOR
-/*
- * Base 2 logarithm of an int. returns 0 for 0 (yeye, I know).
- */
-static int
-log2(unsigned int i)
-{
-	int ret = 0;
-
-	while (i >>= 1)
-		ret++;
-
-	return (ret);
-}
-
-/*
- * Calculate the cost of moving the proc to this cpu.
- * 
- * What we want is some guesstimate of how much "performance" it will
- * cost us to move the proc here. Not just for caches and TLBs and NUMA
- * memory, but also for the proc itself. A highly loaded cpu might not
- * be the best candidate for this proc since it won't get run.
- *
- * Just total guesstimates for now.
- */
-
-int sched_cost_load = 1;
-int sched_cost_priority = 1;
-int sched_cost_runnable = 3;
-int sched_cost_resident = 1;
-#endif
-
-int
-sched_proc_to_cpu_cost(struct cpu_info *ci, struct proc *p)
-{
-	int cost = 0;
-#ifdef MULTIPROCESSOR
-	struct schedstate_percpu *spc;
-	int l2resident = 0;
-
-	spc = &ci->ci_schedstate;
-
-	/*
-	 * First, account for the priority of the proc we want to move.
-	 * More willing to move, the lower the priority of the destination
-	 * and the higher the priority of the proc.
-	 */
-	if (!cpuset_isset(&sched_idle_cpus, ci)) {
-		cost += (p->p_usrpri - spc->spc_curpriority) *
-		    sched_cost_priority;
-		cost += sched_cost_runnable;
-	}
-	if (cpuset_isset(&sched_queued_cpus, ci))
-		cost += spc->spc_nrun * sched_cost_runnable;
-
-	/*
-	 * Try to avoid the primary cpu as it handles hardware interrupts.
-	 *
-	 * XXX Needs to be revisited when we distribute interrupts
-	 * over cpus.
-	 */
-	if (CPU_IS_PRIMARY(ci))
-		cost += sched_cost_runnable;
-
-	/*
-	 * Higher load on the destination means we don't want to go there.
-	 */
-	cost += ((sched_cost_load * spc->spc_ldavg) >> FSHIFT);
-
-	/*
-	 * If the proc is on this cpu already, lower the cost by how much
-	 * it has been running and an estimate of its footprint.
-	 */
-	if (p->p_cpu == ci && p->p_slptime == 0) {
-		l2resident =
-		    log2(pmap_resident_count(p->p_vmspace->vm_map.pmap));
-		cost -= l2resident * sched_cost_resident;
-	}
-#endif
-	return (cost);
-}
-
-/*
  * Peg a proc to a cpu.
  */
 void
@@ -619,8 +433,9 @@ sched_peg_curproc(struct cpu_info *ci)
 	int s;
 
 	SCHED_LOCK(s);
+	p->p_cpu = ci;
 	atomic_setbits_int(&p->p_flag, P_CPUPEG);
-	setrunqueue(ci, p, p->p_usrpri);
+	setrunqueue(ci, p, 0);
 	p->p_ru.ru_nvcsw++;
 	mi_switch();
 	SCHED_UNLOCK(s);

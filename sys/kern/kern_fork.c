@@ -310,12 +310,11 @@ fork_check_maxthread(uid_t uid)
 static inline void
 fork_thread_start(struct proc *p, struct proc *parent, int flags)
 {
-	struct cpu_info *ci;
 	int s;
 
 	SCHED_LOCK(s);
-	ci = sched_choosecpu_fork(parent, flags);
-	setrunqueue(ci, p, p->p_usrpri);
+	p->p_cpu = curcpu();
+	setrunqueue(NULL, p, 0);
 	SCHED_UNLOCK(s);
 }
 

@@ -1193,11 +1193,6 @@ ptsignal(struct proc *p, int signum, enum signal_type type)
 	/* NOTREACHED */
 
 runfast:
-	/*
-	 * Raise priority to at least PUSER.
-	 */
-	if (p->p_usrpri > PUSER)
-		p->p_usrpri = PUSER;
 run:
 	setrunnable(p);
 out:

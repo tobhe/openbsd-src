@@ -41,7 +41,6 @@ struct mutex clockintr_mtx = MUTEX_INITIALIZER(IPL_CLOCK);
 
 u_int clockintr_flags;			/* [I] global state + behavior flags */
 uint32_t hardclock_period;		/* [I] hardclock period (ns) */
-uint32_t schedclock_period;		/* [I] schedclock period (ns) */
 volatile u_int statclock_gen = 1;	/* [C] statclock update generation */
 volatile uint32_t statclock_avg;	/* [C] average statclock period (ns) */
 uint32_t statclock_min;			/* [C] minimum statclock period (ns) */
@@ -61,7 +60,6 @@ struct clockintr *clockintr_establish(struct clockintr_queue *,
 uint64_t clockintr_expiration(const struct clockintr *);
 void clockintr_hardclock(struct clockintr *, void *);
 uint64_t clockintr_nsecuptime(const struct clockintr *);
-void clockintr_schedclock(struct clockintr *, void *);
 void clockintr_schedule(struct clockintr *, uint64_t);
 void clockintr_schedule_locked(struct clockintr *, uint64_t);
 void clockintr_statclock(struct clockintr *, void *);
@@ -91,10 +89,6 @@ clockintr_init(u_int flags)
 	clockintr_statvar_init(profhz, &prof_avg, &prof_min, &prof_mask);
 	SET(clockintr_flags, CL_STATCLOCK);
 	clockintr_setstatclockrate(stathz);
-
-	KASSERT(schedhz >= 0 && schedhz <= 1000000000);
-	if (schedhz != 0)
-		schedclock_period = 1000000000 / schedhz;
 
 	SET(clockintr_flags, flags | CL_INIT);
 }
@@ -130,12 +124,6 @@ clockintr_cpu_init(const struct intrclock *ic)
 		cq->cq_statclock = clockintr_establish(cq, clockintr_statclock);
 		if (cq->cq_statclock == NULL)
 			panic("%s: failed to establish statclock", __func__);
-	}
-	if (schedhz != 0 && cq->cq_schedclock == NULL) {
-		cq->cq_schedclock = clockintr_establish(cq,
-		    clockintr_schedclock);
-		if (cq->cq_schedclock == NULL)
-			panic("%s: failed to establish schedclock", __func__);
 	}
 
 	/*
@@ -178,16 +166,11 @@ clockintr_cpu_init(const struct intrclock *ic)
 	}
 
 	/*
-	 * We can always advance the statclock and schedclock.
+	 * We can always advance the statclock.
 	 */
 	offset = statclock_avg / ncpus * multiplier;
 	clockintr_schedule(cq->cq_statclock, offset);
 	clockintr_advance(cq->cq_statclock, statclock_avg);
-	if (schedhz != 0) {
-		offset = schedclock_period / ncpus * multiplier;
-		clockintr_schedule(cq->cq_schedclock, offset);
-		clockintr_advance(cq->cq_schedclock, schedclock_period);
-	}
 
 	if (reset_cq_intrclock)
 		SET(cq->cq_flags, CQ_INTRCLOCK);
@@ -540,19 +523,6 @@ clockintr_hardclock(struct clockintr *cl, void *frame)
 	count = clockintr_advance(cl, hardclock_period);
 	for (i = 0; i < count; i++)
 		hardclock(frame);
-}
-
-void
-clockintr_schedclock(struct clockintr *cl, void *unused)
-{
-	uint64_t count, i;
-	struct proc *p = curproc;
-
-	count = clockintr_advance(cl, schedclock_period);
-	if (p != NULL) {
-		for (i = 0; i < count; i++)
-			schedclock(p);
-	}
 }
 
 void
