@@ -2821,7 +2821,7 @@ bwfm_set_key(struct ieee80211com *ic, struct ieee80211_node *ni,
     struct ieee80211_key *k)
 {
 	struct bwfm_softc *sc = ic->ic_softc;
-	struct bwfm_cmd_key cmd;
+	struct bwfm_cmd_set_key cmd;
 
 	cmd.ni = ni;
 	cmd.k = k;
@@ -2833,13 +2833,18 @@ bwfm_set_key(struct ieee80211com *ic, struct ieee80211_node *ni,
 void
 bwfm_set_key_cb(struct bwfm_softc *sc, void *arg)
 {
-	struct bwfm_cmd_key *cmd = arg;
+	struct bwfm_cmd_set_key *cmd = arg;
 	struct ieee80211_key *k = cmd->k;
 	struct ieee80211_node *ni = cmd->ni;
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct bwfm_wsec_key key;
 	uint32_t wsec, wsec_enable;
 	int ext_key = 0;
+
+	printf("%s:%d: set key %u\n", __func__, __LINE__, k->k_id);
+
+	if (k->k_id >= nitems(sc->sc_key))
+		return;
 
 	sc->sc_key_tasks--;
 
@@ -2888,6 +2893,8 @@ bwfm_set_key_cb(struct bwfm_softc *sc, void *arg)
 	wsec &= ~(BWFM_WSEC_WEP | BWFM_WSEC_TKIP | BWFM_WSEC_AES);
 	wsec |= wsec_enable;
 	bwfm_fwvar_var_set_int(sc, "wsec", wsec);
+	sc->sc_key[k->k_id] = 1;
+	printf("%s:%d: key %u set success\n", __func__, __LINE__, k->k_id);
 
 	if (wsec_enable != BWFM_WSEC_WEP && cmd->ni != NULL &&
 	    sc->sc_key_tasks == 0) {
@@ -2903,24 +2910,32 @@ bwfm_delete_key(struct ieee80211com *ic, struct ieee80211_node *ni,
     struct ieee80211_key *k)
 {
 	struct bwfm_softc *sc = ic->ic_softc;
-	struct bwfm_cmd_key cmd;
+	struct bwfm_cmd_del_key cmd;
 
-	cmd.ni = ni;
-	cmd.k = k;
+	cmd.k_id = k->k_id;
 	bwfm_do_async(sc, bwfm_delete_key_cb, &cmd, sizeof(cmd));
 }
 
 void
 bwfm_delete_key_cb(struct bwfm_softc *sc, void *arg)
 {
-	struct bwfm_cmd_key *cmd = arg;
-	struct ieee80211_key *k = cmd->k;
+	struct bwfm_cmd_del_key *cmd = arg;
+	uint8_t k_id = cmd->k_id;
 	struct bwfm_wsec_key key;
 
+	printf("%s:%d: delete key %u\n", __func__, __LINE__, k_id);
+
+	if (k_id >= nitems(sc->sc_key))
+		return;
+	if (!sc->sc_key[k_id])
+		return;
+
 	memset(&key, 0, sizeof(key));
-	key.index = htole32(k->k_id);
+	key.index = htole32(k_id);
 	key.flags = htole32(BWFM_WSEC_PRIMARY_KEY);
 	bwfm_fwvar_var_set_data(sc, "wsec_key", &key, sizeof(key));
+	sc->sc_key[k_id] = 0;
+	printf("%s:%d: key %u delete success\n", __func__, __LINE__, k_id);
 }
 
 int

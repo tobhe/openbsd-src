@@ -127,9 +127,13 @@ struct bwfm_host_cmd {
 	uint8_t	 data[256];
 };
 
-struct bwfm_cmd_key {
-	struct ieee80211_node	 *ni;
-	struct ieee80211_key	 *k;
+struct bwfm_cmd_set_key {
+	struct ieee80211_node	*ni;
+	struct ieee80211_key	*k;
+};
+
+struct bwfm_cmd_del_key {
+	uint8_t			 k_id;
 };
 
 struct bwfm_cmd_flowring_create {
@@ -199,6 +203,8 @@ struct bwfm_softc {
 	char			 sc_module[8];
 	char			 sc_vendor[8];
 	char			 sc_modrev[8];
+
+	uint8_t			 sc_key[6];
 };
 
 void bwfm_attach(struct bwfm_softc *);
