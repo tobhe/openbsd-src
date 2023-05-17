@@ -264,7 +264,6 @@ struct apldchidev_gpio {
 	uint8_t			ag_id;
 	uint8_t			ag_iface;
 	uint32_t		ag_gpio[APLDCHIDEV_GPIO_MAX];
-	struct task		ag_task;
 };
 
 struct apldchidev_softc {
@@ -304,6 +303,7 @@ struct apldchidev_softc {
 	u_int			sc_ngpios;
 	uint8_t			sc_gpio_cmd[APLDCHIDEV_PKT_MAX];
 	size_t			sc_gpio_cmd_len;
+	struct task		sc_gpio_task;
 
 	uint8_t			sc_cmd_iface;
 	uint8_t			sc_cmd_seq;
@@ -426,6 +426,7 @@ apldchidev_attach(struct device *parent, struct device *self, void *aux)
 
 	bus_space_write_4(sc->sc_iot, sc->sc_cfg_ioh, DC_CONFIG_RX_THRESH, 8);
 	fdt_intr_enable(sc->sc_rx_ih);
+	task_set(&sc->sc_gpio_task, apldchidev_gpio_task, sc);
 
 #if NAPLDCMS > 0
 	config_mountroot(self, apldchidev_attachhook);
@@ -594,8 +595,6 @@ apldchidev_handle_gpio_req(struct apldchidev_softc *sc, uint8_t iface,
 	sc->sc_gpio[sc->sc_ngpios].ag_id = req->id;
 	sc->sc_gpio[sc->sc_ngpios].ag_iface = iface;
 	memcpy(sc->sc_gpio[sc->sc_ngpios].ag_gpio, gpio, len);
-	task_set(&sc->sc_gpio[sc->sc_ngpios].ag_task,
-	    apldchidev_gpio_task, &sc->sc_gpio[sc->sc_ngpios]);
 	sc->sc_ngpios++;
 }
 
@@ -651,9 +650,7 @@ void
 apldchidev_handle_comm(struct apldchidev_softc *sc, void *buf, size_t len)
 {
 	struct mtp_init_hdr *ihdr = buf;
-	struct mtp_gpio_cmd *cmd = buf;
 	uint8_t iface;
-	int i;
 
 	switch (ihdr->type) {
 	case MTP_EVENT_INIT:
@@ -683,20 +680,9 @@ apldchidev_handle_comm(struct apldchidev_softc *sc, void *buf, size_t len)
 			sc->sc_mt_ready = 1;
 		break;
 	case MTP_EVENT_GPIO_CMD:
-		for (i =0; i < sc->sc_ngpios; i++) {
-			if (cmd->id == sc->sc_gpio[i].ag_id &&
-			    cmd->iface == sc->sc_gpio[i].ag_iface &&
-			    cmd->cmd == MTP_GPIO_CMD_TOGGLE) {
-				/* Stash the command for the reply. */
-				KASSERT(len < sizeof(sc->sc_gpio_cmd));
-				memcpy(sc->sc_gpio_cmd, buf, len);
-				sc->sc_gpio_cmd_len = len;
-				task_add(systq, &sc->sc_gpio[i].ag_task);
-				return;
-			}
-		}
-		printf("%s: unhandled gpio id %d iface %d cmd 0x%02x\n",
-		       sc->sc_dev.dv_xname, cmd->id, cmd->iface, cmd->cmd);
+		sc->sc_gpio_cmd_len = len;
+		memcpy(sc->sc_gpio_cmd, buf, len);
+		task_add(systq, &sc->sc_gpio_task);
 		break;
 	default:
 		printf("%s: unhandled comm event 0x%02x\n",
@@ -708,20 +694,35 @@ apldchidev_handle_comm(struct apldchidev_softc *sc, void *buf, size_t len)
 void
 apldchidev_gpio_task(void *arg)
 {
-	struct apldchidev_gpio *ag = arg;
-	struct apldchidev_softc *sc = ag->ag_sc;
+	struct apldchidev_softc *sc = arg;
+	struct apldchidev_gpio *ag = NULL;
 	struct mtp_gpio_ack *ack;
+	struct mtp_gpio_cmd *cmd = (struct mtp_gpio_cmd *) sc->sc_gpio_cmd;
 	uint8_t flags;
 	size_t len;
+	uint32_t rval = 0xe000f00d;
+	int i;
 
-	gpio_controller_set_pin(ag->ag_gpio, 1);
-	delay(10000);
-	gpio_controller_set_pin(ag->ag_gpio, 0);
+	for (i = 0; i < sc->sc_ngpios; i++) {
+		if (cmd->id == sc->sc_gpio[i].ag_id &&
+		    cmd->iface == sc->sc_gpio[i].ag_iface) {
+			ag = &sc->sc_gpio[i];
+		}
+	}
+	if (ag != NULL && cmd->cmd == MTP_GPIO_CMD_TOGGLE) {
+		gpio_controller_set_pin(ag->ag_gpio, 1);
+		delay(10000);
+		gpio_controller_set_pin(ag->ag_gpio, 0);
+		rval = 0;
+	} else {
+		printf("%s: unhandled gpio id %d iface %d cmd 0x%02x\n",
+    		    sc->sc_dev.dv_xname, cmd->id, cmd->iface, cmd->cmd);
+	}
 
 	len = sizeof(*ack) + sc->sc_gpio_cmd_len;
 	ack = malloc(len, M_TEMP, M_WAITOK);
 	ack->type = MTP_CMD_ACK_GPIO_CMD;
-	ack->retcode = 0;
+	ack->retcode = rval;
 	memcpy(ack->cmd, sc->sc_gpio_cmd, sc->sc_gpio_cmd_len);
 
 	flags = MTP_GROUP_CMD << MTP_GROUP_SHIFT;
