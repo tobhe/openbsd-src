@@ -237,6 +237,7 @@ attach	acpi at bios
 file	arch/amd64/amd64/acpi_machdep.c		acpi
 file	arch/amd64/amd64/acpi_wakecode.S	acpi & !small_kernel
 file	dev/acpi/acpi_x86.c			acpi & suspend & !small_kernel
+file	dev/acpi/acpi_apm.c			acpi
 
 device	acpipci
 attach	acpipci at acpi
