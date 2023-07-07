@@ -667,6 +667,7 @@
 #define KS_Cmd_ScrollBack	0xf42c
 #define KS_Cmd_ScrollFwd	0xf42d
 #define KS_Cmd_KbdReset		0xf42e
+#define KS_Cmd_Sleep		0xf42f
 
 /*
  * Group 5 (internal)

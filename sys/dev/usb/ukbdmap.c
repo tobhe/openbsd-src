@@ -176,6 +176,7 @@ static const keysym_t ukbd_keydesc_us[] = {
     KC(127),	KS_AudioMute,
     KC(128),	KS_AudioRaise,
     KC(129),	KS_AudioLower,
+    KC(130),	KS_Cmd_Sleep,
     KC(224),	KS_Cmd1,	KS_Control_L,
     KC(225),	KS_Shift_L,
     KC(226),	KS_Cmd2,	KS_Alt_L,

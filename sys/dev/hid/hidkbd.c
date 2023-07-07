@@ -144,6 +144,7 @@ static const struct hidkbd_translation apple_fn_trans[] = {
 	{ 61, 129 },	/* F4 -> audio lower */
 	{ 62, 128 },	/* F5 -> audio raise */
 #else
+	{ 63, 130 },	/* F6 -> sleep */
 	{ 67, 127 },	/* F10 -> audio mute */
 	{ 68, 129 },	/* F11 -> audio lower */
 	{ 69, 128 },	/* F12 -> audio raise */
@@ -565,6 +566,7 @@ hidkbd_decode(struct hidkbd *kbd, struct hidkbd_data *ud)
 			case 127:
 			case 128:
 			case 129:
+			case 130:
 			case 232:
 			case 233:
 				wskbd_input(kbd->sc_wskbddev,

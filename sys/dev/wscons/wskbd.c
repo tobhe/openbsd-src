@@ -1513,6 +1513,11 @@ internal_command(struct wskbd_softc *sc, u_int *type, keysym_t ksym,
 	if (*type != WSCONS_EVENT_KEY_DOWN)
 		return (0);
 
+#ifdef SUSPEND
+	if (ksym == KS_Cmd_Sleep)
+		return request_sleep(SLEEP_SUSPEND);
+#endif
+
 #ifdef HAVE_SCROLLBACK_SUPPORT
 #if NWSDISPLAY > 0
 	switch (ksym) {
