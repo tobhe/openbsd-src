@@ -199,6 +199,7 @@ void config_pending_decr(void);
 void config_mountroot(struct device *, void (*)(struct device *));
 void config_process_deferred_mountroot(void);
 
+int	request_sleep(int);
 int	sleep_state(void *, int);
 #define SLEEP_SUSPEND	0x01
 #define SLEEP_HIBERNATE	0x02

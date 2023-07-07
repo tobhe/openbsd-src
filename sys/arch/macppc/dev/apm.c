@@ -337,6 +337,12 @@ apmkqfilter(dev_t dev, struct knote *kn)
 
 #ifdef SUSPEND
 
+int
+request_sleep(int sleepmode)
+{
+	return 0;
+}
+
 #ifdef MULTIPROCESSOR
 
 void

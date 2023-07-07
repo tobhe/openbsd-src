@@ -366,7 +366,6 @@ aplsmc_handle_notification(struct aplsmc_softc *sc, uint64_t data)
 	extern int allowpowerdown;
 #ifdef SUSPEND
 	extern int cpu_suspended;
-	extern void suspend(void);
 
 	if (cpu_suspended) {
 		switch (SMC_EV_TYPE(data)) {
@@ -433,7 +432,7 @@ aplsmc_handle_notification(struct aplsmc_softc *sc, uint64_t data)
 			}
 		case 1:
 #ifdef SUSPEND
-			suspend();
+			request_sleep(SLEEP_SUSPEND);
 #endif
 			break;
 		case 2:
