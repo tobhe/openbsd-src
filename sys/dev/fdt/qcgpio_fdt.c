@@ -112,7 +112,8 @@ qcgpio_fdt_match(struct device *parent, void *match, void *aux)
 
 	return (OF_is_compatible(faa->fa_node, "qcom,sc7280-pinctrl") ||
 	    OF_is_compatible(faa->fa_node, "qcom,sc8280xp-tlmm") ||
-	    OF_is_compatible(faa->fa_node, "qcom,x1e80100-tlmm"));
+	    OF_is_compatible(faa->fa_node, "qcom,x1e80100-tlmm") ||
+	    OF_is_compatible(faa->fa_node, "qcom,glymur-tlmm"));
 }
 
 void
@@ -132,6 +133,8 @@ qcgpio_fdt_attach(struct device *parent, struct device *self, void *aux)
 		sc->sc_npins = 175;
 	else if (OF_is_compatible(faa->fa_node, "qcom,sc8280xp-tlmm"))
 		sc->sc_npins = 230;
+	else if (OF_is_compatible(faa->fa_node, "qcom,glymur-tlmm"))
+		sc->sc_npins = 249;
 	else
 		sc->sc_npins = 239;
 	sc->sc_pin_ih = mallocarray(sc->sc_npins,
