@@ -25,6 +25,9 @@
 #include <dev/ofw/openfirm.h>
 #include <dev/ofw/fdt.h>
 
+#define PDC_VERSION		0x1000
+#define PDC_VERSION_3_2		0x030200
+
 #define PDC_INTR_ENABLE(x)	(0x10 + (sizeof(uint32_t) * ((x) / 32)))
 #define  PDC_INTR_ENABLE_BIT(x)		(1U << ((x) % 32))
 #define PDC_INTR_CONFIG(x)	(0x110 + (sizeof(uint32_t) * (x)))
@@ -33,6 +36,8 @@
 #define  PDC_INTR_CONFIG_LEVEL_HIGH	0x4
 #define  PDC_INTR_CONFIG_EDGE_RISING	0x6
 #define  PDC_INTR_CONFIG_EDGE_BOTH	0x7
+#define  PDC_INTR_CONFIG_MASK		0x7
+#define  PDC_INTR_CONFIG_ENABLE		0x8
 
 #define HREAD4(sc, reg)							\
 	(bus_space_read_4((sc)->sc_iot, (sc)->sc_ioh, (reg)))
@@ -60,6 +65,7 @@ struct qcpdc_softc {
 	bus_space_tag_t			 sc_iot;
 	bus_space_handle_t		 sc_ioh;
 	int				 sc_node;
+	int				 sc_version;
 
 	struct qcpdc_pin_region		*sc_pr;
 	int				 sc_npr;
@@ -127,10 +133,13 @@ qcpdc_attach(struct device *parent, struct device *self, void *aux)
 		return;
 	}
 
-	for (i = 0; i < sc->sc_npr; i++) {
-		for (j = 0; j < sc->sc_pr[i].count; j++) {
-			HCLR4(sc, PDC_INTR_ENABLE(sc->sc_pr[i].pin_base + j),
-			    PDC_INTR_ENABLE_BIT(sc->sc_pr[i].pin_base + j));
+	sc->sc_version = HREAD4(sc, PDC_VERSION);
+	if (sc->sc_version < PDC_VERSION_3_2) {
+		for (i = 0; i < sc->sc_npr; i++) {
+			for (j = 0; j < sc->sc_pr[i].count; j++) {
+				HCLR4(sc, PDC_INTR_ENABLE(sc->sc_pr[i].pin_base + j),
+				    PDC_INTR_ENABLE_BIT(sc->sc_pr[i].pin_base + j));
+			}
 		}
 	}
 
@@ -158,6 +167,7 @@ qcpdc_intr_establish(void *aux, int *cells, int ipl,
 	int pin = cells[0];
 	int level = cells[1];
 	int i, s;
+	uint32_t reg, new;
 
 	for (i = 0; i < sc->sc_npr; i++) {
 		if (pin >= sc->sc_pr[i].pin_base &&
@@ -169,25 +179,29 @@ qcpdc_intr_establish(void *aux, int *cells, int ipl,
 
 	switch (level) {
 	case 1:
-		HWRITE4(sc, PDC_INTR_CONFIG(pin), PDC_INTR_CONFIG_EDGE_RISING);
+		new = PDC_INTR_CONFIG_EDGE_RISING;
 		break;
 	case 2:
-		HWRITE4(sc, PDC_INTR_CONFIG(pin), PDC_INTR_CONFIG_EDGE_FALLING);
+		new = PDC_INTR_CONFIG_EDGE_FALLING;
 		break;
 	case 3:
-		HWRITE4(sc, PDC_INTR_CONFIG(pin), PDC_INTR_CONFIG_EDGE_BOTH);
+		new = PDC_INTR_CONFIG_EDGE_BOTH;
 		break;
 	case 4:
-		HWRITE4(sc, PDC_INTR_CONFIG(pin), PDC_INTR_CONFIG_LEVEL_HIGH);
+		new = PDC_INTR_CONFIG_LEVEL_HIGH;
 		break;
 	case 8:
-		HWRITE4(sc, PDC_INTR_CONFIG(pin), PDC_INTR_CONFIG_LEVEL_LOW);
+		new = PDC_INTR_CONFIG_LEVEL_LOW;
 		break;
 	default:
 		printf("%s: unsupported interrupt mode/polarity\n",
 		    sc->sc_dev.dv_xname);
 		return NULL;
 	}
+
+	reg = HREAD4(sc, PDC_INTR_CONFIG(pin));
+	new |= reg & ~PDC_INTR_CONFIG_MASK;
+	HWRITE4(sc, PDC_INTR_CONFIG(pin), new);
 
 	pcells[0] = 0; /* GIC-SPI */
 	pcells[1] = pin - sc->sc_pr[i].pin_base + sc->sc_pr[i].gic_base;
@@ -204,7 +218,11 @@ qcpdc_intr_establish(void *aux, int *cells, int ipl,
 	ih->ih_pin = pin;
 
 	s = splhigh();
-	HSET4(sc, PDC_INTR_ENABLE(pin), PDC_INTR_ENABLE_BIT(pin));
+	if (sc->sc_version < PDC_VERSION_3_2) {
+		HSET4(sc, PDC_INTR_ENABLE(pin), PDC_INTR_ENABLE_BIT(pin));
+	} else {
+		HSET4(sc, PDC_INTR_CONFIG(pin), PDC_INTR_CONFIG_ENABLE);
+	}
 	splx(s);
 
 	return ih;
@@ -218,7 +236,11 @@ qcpdc_intr_disestablish(void *cookie)
 	int s;
 
 	s = splhigh();
-	HCLR4(sc, PDC_INTR_ENABLE(ih->ih_pin), PDC_INTR_ENABLE_BIT(ih->ih_pin));
+	if (sc->sc_version < PDC_VERSION_3_2) { 
+		HCLR4(sc, PDC_INTR_ENABLE(ih->ih_pin), PDC_INTR_ENABLE_BIT(ih->ih_pin));
+	} else {
+		HCLR4(sc, PDC_INTR_CONFIG(ih->ih_pin), PDC_INTR_CONFIG_ENABLE);
+	}
 	splx(s);
 
 	fdt_intr_parent_disestablish(ih->ih_cookie);
