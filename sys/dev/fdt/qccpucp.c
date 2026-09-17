@@ -83,7 +83,8 @@ qccpucp_match(struct device *parent, void *match, void *aux)
 {
 	struct fdt_attach_args *faa = aux;
 
-	return OF_is_compatible(faa->fa_node, "qcom,x1e80100-cpucp-mbox");
+	return OF_is_compatible(faa->fa_node, "qcom,x1e80100-cpucp-mbox") ||
+	    OF_is_compatible(faa->fa_node, "qcom,glymur-cpucp-mbox");
 }
 
 void
