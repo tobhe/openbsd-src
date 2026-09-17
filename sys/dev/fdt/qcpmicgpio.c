@@ -122,6 +122,10 @@ qcpmicgpio_attach(struct device *parent, struct device *self, void *aux)
 		sc->sc_npins = 10;
 	if (OF_is_compatible(saa->sa_node, "qcom,pmr735a-gpio"))
 		sc->sc_npins = 4;
+	if (OF_is_compatible(saa->sa_node, "qcom,pmh0101-gpio"))
+		sc->sc_npins = 18;
+	if (OF_is_compatible(saa->sa_node, "qcom,pmcx0102-gpio"))
+		sc->sc_npins = 14;
 
 	if (!sc->sc_npins) {
 		printf(": no pins\n");
