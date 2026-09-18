@@ -134,6 +134,7 @@
 
 #define PPI_BASE		16
 #define SPI_BASE		32
+#define ESPI_BASE		4096
 #define LPI_BASE		8192
 
 #define IRQ_TO_REG32(i)		(((i) >> 5) & 0x1f)
@@ -1197,11 +1198,13 @@ agintc_intr_establish_fdt(void *cookie, int *cell, int level,
 	/* 2nd cell contains the interrupt number */
 	irq = cell[1];
 
-	/* 1st cell contains type: 0 SPI (32-X), 1 PPI (16-31) */
+	/* 1st cell contains type: 0 SPI (32-X), 1 PPI (16-31), 3 ESPI */
 	if (cell[0] == 0)
 		irq += SPI_BASE;
 	else if (cell[0] == 1)
 		irq += PPI_BASE;
+	else if (cell[0] == 3)
+		irq += ESPI_BASE;
 	else
 		panic("%s: bogus interrupt type", sc->sc_sbus.sc_dev.dv_xname);
 
@@ -1222,10 +1225,13 @@ agintc_intr_establish(int irqno, int type, int level, struct cpu_info *ci,
 	struct intrhand		*ih;
 	u_long			 psw;
 
-	if (irqno < 0 || (irqno >= sc->sc_nintr && irqno < LPI_BASE) ||
-	    irqno >= LPI_BASE + sc->sc_nlpi)
+	if (irqno < 0 || irqno >= LPI_BASE + sc->sc_nlpi)
 		panic("agintc_intr_establish: bogus irqnumber %d: %s",
 		    irqno, name);
+
+	/* ESPIs are not supported yet. */
+	if (irqno >= sc->sc_nintr && irqno < LPI_BASE)
+		return NULL;
 
 	if (ci == NULL)
 		ci = &cpu_info_primary;
