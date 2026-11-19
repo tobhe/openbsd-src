@@ -125,7 +125,9 @@ smmu_v2_fdt_attach(struct smmu_fdt_softc *fsc, int node)
 		sc->sc_is_ap806 = 1;
 	if (OF_is_compatible(node, "qcom,sc7280-smmu-500") ||
 	    OF_is_compatible(node, "qcom,sc8280xp-smmu-500") ||
-	    OF_is_compatible(node, "qcom,x1e80100-smmu-500"))
+	    OF_is_compatible(node, "qcom,x1e80100-smmu-500") ||
+	    OF_is_compatible(node, "qcom,qcom,glymur-smmu-500") ||
+	    OF_is_compatible(node, "qcom,smmu-500"))
 		sc->sc_is_qcom = 1;
 	if (OF_getproplen(node, "dma-coherent") == 0)
 		sc->sc_coherent = 1;
