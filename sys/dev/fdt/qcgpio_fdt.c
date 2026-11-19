@@ -134,6 +134,8 @@ qcgpio_fdt_attach(struct device *parent, struct device *self, void *aux)
 		sc->sc_npins = 175;
 	else if (OF_is_compatible(faa->fa_node, "qcom,sc8280xp-tlmm"))
 		sc->sc_npins = 230;
+	else if (OF_is_compatible(faa->fa_node, "qcom,glymur-tlmm"))
+		sc->sc_npins = 249;
 	else
 		sc->sc_npins = 239;
 	sc->sc_pin_ih = mallocarray(sc->sc_npins,
